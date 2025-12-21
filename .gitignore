@@ -1,0 +1,32 @@
+# Конфиденциальные данные
+secrets/
+*.pwd.txt
+*.key
+*.pem
+
+# Данные базы данных и архивы
+Flibusta.Net/*
+FlibustaSQL/*
+cache/*
+
+# Временные файлы
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Docker
+.env
+docker-compose.override.yml
+
+# Системные файлы
+blob/1
