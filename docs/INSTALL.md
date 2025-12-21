@@ -252,6 +252,59 @@ docker-compose exec php-fpm bash /application/scripts/init_database.sh
 
 ## Устранение проблем
 
+### Проблемы с загрузкой образов Docker
+
+**Ошибка TLS handshake timeout при загрузке образов:**
+
+Эта ошибка обычно возникает из-за проблем с сетью или блокировки доступа к Docker Hub. Решения:
+
+1. **Проверьте подключение к интернету:**
+```bash
+ping registry-1.docker.io
+```
+
+2. **Настройте прокси для Docker (если используется прокси-сервер):**
+```bash
+# Создайте или отредактируйте /etc/docker/daemon.json
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "proxies": {
+    "http-proxy": "http://proxy.example.com:8080",
+    "https-proxy": "http://proxy.example.com:8080",
+    "no-proxy": "localhost,127.0.0.1"
+  }
+}
+EOF
+sudo systemctl restart docker
+```
+
+3. **Используйте альтернативные репозитории (для Китая и других регионов):**
+```bash
+# Для Китая используйте зеркала
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "registry-mirrors": [
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://hub-mirror.c.163.com"
+  ]
+}
+EOF
+sudo systemctl restart docker
+```
+
+4. **Повторите попытку загрузки:**
+```bash
+docker-compose pull
+docker-compose up -d
+```
+
+5. **Если проблема сохраняется, попробуйте загрузить образы вручную:**
+```bash
+docker pull nginx:alpine
+docker pull postgres:latest
+```
+
 ### Проблемы с Docker
 
 **Docker не установлен:**

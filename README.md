@@ -446,6 +446,58 @@ docker-compose exec php-fpm rm -rf /application/cache/authors/* /application/cac
 
 ## 🐛 Устранение неполадок
 
+### Проблемы с загрузкой образов Docker
+
+**Ошибка "TLS handshake timeout" при `docker-compose up -d`:**
+
+Эта ошибка возникает при проблемах с сетью или блокировке доступа к Docker Hub.
+
+**Решения:**
+
+1. **Проверьте подключение к интернету:**
+```bash
+ping registry-1.docker.io
+```
+
+2. **Настройте прокси для Docker (если используется прокси):**
+```bash
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "proxies": {
+    "http-proxy": "http://proxy.example.com:8080",
+    "https-proxy": "http://proxy.example.com:8080",
+    "no-proxy": "localhost,127.0.0.1"
+  }
+}
+EOF
+sudo systemctl restart docker
+```
+
+3. **Используйте альтернативные репозитории (для регионов с ограниченным доступом):**
+```bash
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "registry-mirrors": [
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://hub-mirror.c.163.com"
+  ]
+}
+EOF
+sudo systemctl restart docker
+```
+
+4. **Повторите попытку:**
+```bash
+docker-compose pull
+docker-compose up -d
+```
+
+5. **Загрузите образы вручную:**
+```bash
+docker pull nginx:alpine
+```
+
 ### Проблемы с подключением к базе данных
 
 ```bash
