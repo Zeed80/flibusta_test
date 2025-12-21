@@ -378,23 +378,6 @@ http://localhost:27100/opds/search?by=author&q=пушкин
 docker-compose exec php-fpm rm -rf /application/cache/authors/* /application/cache/covers/*
 ```
 
-## 🚀 Публикация на GitHub
-
-Для публикации проекта на GitHub используйте готовые скрипты:
-
-**Windows (PowerShell):**
-```powershell
-.\publish_to_github.ps1 -RemoteUrl "https://github.com/Zeed80/flibusta_test.git"
-```
-
-**Linux / macOS:**
-```bash
-chmod +x publish_to_github.sh
-./publish_to_github.sh https://github.com/Zeed80/flibusta_test.git
-```
-
-Подробные инструкции см. в [PUBLISHING.md](PUBLISHING.md).
-
 ## 🐛 Устранение неполадок
 
 ### Проблемы с подключением к базе данных
@@ -432,7 +415,6 @@ docker-compose restart
 
 - [Документация OPDS](application/opds/README.md) - подробное описание OPDS функций
 - [Конфигурация внешних сервисов](application/tools/external_services_config/README.md) - использование с внешними сервисами
-- [Инструкция по публикации](PUBLISHING.md) - публикация проекта на GitHub
 
 ## 🔄 Обновление проекта
 
