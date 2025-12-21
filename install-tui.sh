@@ -106,23 +106,7 @@ dialog_dselect() {
         # Используем dselect для выбора директории (как в Total Commander)
         local title=$1
         local default_path=$2
-        local quick_nav=$3  # Опциональный параметр для быстрой навигации
         local abs_path=$(get_absolute_path "$default_path")
-        
-        # Обработка быстрой навигации
-        if [ -n "$quick_nav" ]; then
-            case "$quick_nav" in
-                "home")
-                    abs_path=$(get_home_dir)
-                    ;;
-                "project")
-                    abs_path=$(get_project_root)
-                    ;;
-                "current")
-                    abs_path="$(pwd)"
-                    ;;
-            esac
-        fi
         
         # Убеждаемся, что путь существует и это директория
         if [ ! -d "$abs_path" ]; then
@@ -131,12 +115,14 @@ dialog_dselect() {
         
         # Улучшенный интерфейс с подсказками и увеличенным размером
         # Высота 25, ширина 70 для лучшей видимости
+        # dselect позволяет навигацию: стрелки для перемещения, Enter для входа/выбора, Tab для переключения
         local full_title="$title"
         
         dialog --stdout \
             --title "$full_title" \
             --dselect "$abs_path" 25 70 \
-            --no-shadow
+            --no-shadow \
+            2>&1
     else
         # whiptail не поддерживает dselect, используем inputbox
         whiptail --title "$1" --inputbox "Введите путь к папке:" 10 50 "$2" 3>&1 1>&2 2>&3
@@ -167,6 +153,152 @@ dialog_gauge() {
     fi
 }
 
+# Функция управления контейнерами
+show_container_management() {
+    while true; do
+        local compose_cmd="docker-compose"
+        if ! command -v docker-compose &> /dev/null; then
+            compose_cmd="docker compose"
+        fi
+        
+        # Проверка статуса контейнеров
+        local status_info=""
+        if [ -f "docker-compose.yml" ]; then
+            local running=$(docker ps --filter "name=flibusta" --format "{{.Names}}" 2>/dev/null | wc -l)
+            status_info=" (Запущено: $running)"
+        fi
+        
+        local choice
+        choice=$(dialog_menu "Управление контейнерами$status_info" \
+            "Выберите действие:" \
+            "1" "Собрать образы" \
+            "2" "Запустить контейнеры" \
+            "3" "Остановить контейнеры" \
+            "4" "Перезапустить контейнеры" \
+            "5" "Показать статус" \
+            "6" "Показать логи" \
+            "0" "Назад")
+        
+        case $choice in
+            1)
+                if dialog_yesno "Подтверждение" "Собрать Docker образы?\n\nЭто может занять некоторое время."; then
+                    (
+                        echo "10"
+                        echo "XXX"
+                        echo "Сборка образов..."
+                        echo "XXX"
+                        if [ -f ".env" ]; then
+                            export $(grep -v '^#' .env | xargs)
+                        fi
+                        $compose_cmd build 2>&1 | tee -a /tmp/flibusta_build.log
+                        echo "100"
+                        echo "XXX"
+                        echo "Сборка завершена!"
+                        echo "XXX"
+                    ) | dialog_gauge "Сборка образов" "Начало сборки..."
+                    
+                    if [ $? -eq 0 ]; then
+                        dialog_msgbox "Успешно" "Образы собраны успешно!"
+                    else
+                        dialog_msgbox "Ошибка" "Ошибка при сборке образов.\n\nПроверьте логи."
+                    fi
+                fi
+                ;;
+            2)
+                if dialog_yesno "Подтверждение" "Запустить контейнеры?"; then
+                    (
+                        echo "10"
+                        echo "XXX"
+                        echo "Запуск контейнеров..."
+                        echo "XXX"
+                        if [ -f ".env" ]; then
+                            export $(grep -v '^#' .env | xargs)
+                        fi
+                        $compose_cmd up -d 2>&1 | tee -a /tmp/flibusta_start.log
+                        echo "50"
+                        echo "XXX"
+                        echo "Ожидание готовности..."
+                        echo "XXX"
+                        sleep 10
+                        echo "100"
+                        echo "XXX"
+                        echo "Готово!"
+                        echo "XXX"
+                    ) | dialog_gauge "Запуск контейнеров" "Запуск..."
+                    
+                    if [ $? -eq 0 ]; then
+                        dialog_msgbox "Успешно" "Контейнеры запущены!"
+                    else
+                        dialog_msgbox "Ошибка" "Ошибка при запуске контейнеров.\n\nПроверьте логи."
+                    fi
+                fi
+                ;;
+            3)
+                if dialog_yesno "Подтверждение" "Остановить контейнеры?"; then
+                    if $compose_cmd stop 2>&1; then
+                        dialog_msgbox "Успешно" "Контейнеры остановлены!"
+                    else
+                        dialog_msgbox "Ошибка" "Ошибка при остановке контейнеров."
+                    fi
+                fi
+                ;;
+            4)
+                if dialog_yesno "Подтверждение" "Перезапустить контейнеры?"; then
+                    if [ -f ".env" ]; then
+                        export $(grep -v '^#' .env | xargs)
+                    fi
+                    if $compose_cmd restart 2>&1; then
+                        dialog_msgbox "Успешно" "Контейнеры перезапущены!"
+                    else
+                        dialog_msgbox "Ошибка" "Ошибка при перезапуске контейнеров."
+                    fi
+                fi
+                ;;
+            5)
+                local status_output
+                status_output=$($compose_cmd ps 2>&1)
+                dialog_msgbox "Статус контейнеров" "$status_output"
+                ;;
+            6)
+                local log_choice
+                log_choice=$(dialog_menu "Просмотр логов" \
+                    "Выберите сервис:" \
+                    "1" "Все сервисы" \
+                    "2" "PHP-FPM" \
+                    "3" "PostgreSQL" \
+                    "4" "Nginx" \
+                    "0" "Назад")
+                
+                case $log_choice in
+                    1)
+                        local logs_output
+                        logs_output=$($compose_cmd logs --tail=50 2>&1)
+                        dialog_msgbox "Логи всех сервисов" "$logs_output"
+                        ;;
+                    2)
+                        local logs_output
+                        logs_output=$($compose_cmd logs --tail=50 php-fpm 2>&1)
+                        dialog_msgbox "Логи PHP-FPM" "$logs_output"
+                        ;;
+                    3)
+                        local logs_output
+                        logs_output=$($compose_cmd logs --tail=50 postgres 2>&1)
+                        dialog_msgbox "Логи PostgreSQL" "$logs_output"
+                        ;;
+                    4)
+                        local logs_output
+                        logs_output=$($compose_cmd logs --tail=50 webserver 2>&1)
+                        dialog_msgbox "Логи Nginx" "$logs_output"
+                        ;;
+                esac
+                ;;
+            0)
+                return
+                ;;
+        esac
+    done
+}
+
 # Функция главного меню
 show_main_menu() {
     while true; do
@@ -175,16 +307,18 @@ show_main_menu() {
             "1" "Основные настройки" \
             "2" "Пути к данным" \
             "3" "Дополнительные опции" \
-            "4" "Проверить требования" \
-            "5" "Начать установку" \
+            "4" "Управление контейнерами" \
+            "5" "Проверить требования" \
+            "6" "Начать установку" \
             "0" "Выход")
         
         case $choice in
             1) show_basic_settings ;;
             2) show_paths_selection ;;
             3) show_advanced_options ;;
-            4) check_requirements_dialog ;;
-            5) start_installation ;;
+            4) show_container_management ;;
+            5) check_requirements_dialog ;;
+            6) start_installation ;;
             0) exit 0 ;;
         esac
     done
@@ -198,50 +332,21 @@ select_directory() {
     local absolute_default
     local project_root=$(get_project_root)
     
-    # Показываем меню быстрой навигации перед выбором
-    if [ "$TUI_TOOL" = "dialog" ]; then
-        local nav_choice
-        nav_choice=$(dialog_menu "Навигация" \
-            "Выберите начальную папку:" \
-            "1" "Текущая папка проекта: $project_root" \
-            "2" "Домашняя папка: $(get_home_dir)" \
-            "3" "Текущая рабочая директория: $(pwd)" \
-            "4" "Указать путь вручную" \
-            "0" "Отмена")
-        
-        case $nav_choice in
-            1)
-                absolute_default="$project_root"
-                ;;
-            2)
-                absolute_default=$(get_home_dir)
-                ;;
-            3)
-                absolute_default="$(pwd)"
-                ;;
-            4)
-                # Используем исходный путь
-                if [ -z "$default_path" ]; then
-                    absolute_default="$project_root"
-                elif [[ "$default_path" = /* ]]; then
-                    absolute_default="$default_path"
-                else
-                    absolute_default="$project_root/${default_path#./}"
-                fi
-                ;;
-            0|*)
-                echo "$default_path"
-                return
-                ;;
-        esac
+    # Преобразуем относительный путь в абсолютный для начальной директории
+    if [ -z "$default_path" ]; then
+        absolute_default="$project_root"
+    elif [[ "$default_path" = /* ]]; then
+        absolute_default="$default_path"
     else
-        # Для whiptail используем исходный путь
-        if [ -z "$default_path" ]; then
-            absolute_default="$project_root"
-        elif [[ "$default_path" = /* ]]; then
-            absolute_default="$default_path"
-        else
+        # Для относительных путей начинаем с корня проекта
+        if [[ "$default_path" = ./* ]] || [[ "$default_path" != /* ]]; then
             absolute_default="$project_root/${default_path#./}"
+        else
+            absolute_default="$(cd "$(dirname "$default_path")" 2>/dev/null && pwd)/$(basename "$default_path")"
+        fi
+        # Если путь не существует, используем корень проекта
+        if [ ! -d "$absolute_default" ]; then
+            absolute_default="$project_root"
         fi
     fi
     
@@ -253,7 +358,12 @@ select_directory() {
         absolute_default="$project_root"
     fi
     
-    # Показываем диалог выбора с улучшенным интерфейсом
+    # Показываем диалог выбора директории (dselect позволяет навигацию по папкам)
+    # В dialog --dselect можно:
+    # - Использовать стрелки для перемещения по списку
+    # - Нажать Enter для входа в папку или выбора
+    # - Использовать Tab для переключения между полем пути и списком
+    # - Нажать Escape для отмены
     result=$(dialog_dselect "$title" "$absolute_default")
     local dialog_exit=$?
     

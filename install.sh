@@ -205,21 +205,51 @@ copy_data() {
     fi
 }
 
-# Запуск контейнеров
-start_containers() {
-    log "${BLUE}Запуск контейнеров...${NC}"
-    
-    local compose_cmd="docker-compose"
-    if ! command -v docker-compose &> /dev/null; then
-        compose_cmd="docker compose"
+# Получение команды docker-compose
+get_compose_cmd() {
+    if command -v docker-compose &> /dev/null; then
+        echo "docker-compose"
+    else
+        echo "docker compose"
     fi
+}
+
+# Сборка образов
+build_containers() {
+    log "${BLUE}Сборка Docker образов...${NC}"
+    
+    local compose_cmd=$(get_compose_cmd)
     
     # Загрузка .env
     if [ -f ".env" ]; then
         export $(grep -v '^#' .env | xargs)
     fi
     
-    $compose_cmd build --quiet
+    if $compose_cmd build; then
+        log "${GREEN}✓ Образы собраны${NC}"
+        return 0
+    else
+        log "${RED}✗ Ошибка при сборке образов${NC}"
+        return 1
+    fi
+}
+
+# Запуск контейнеров
+start_containers() {
+    log "${BLUE}Запуск контейнеров...${NC}"
+    
+    local compose_cmd=$(get_compose_cmd)
+    
+    # Загрузка .env
+    if [ -f ".env" ]; then
+        export $(grep -v '^#' .env | xargs)
+    fi
+    
+    # Сборка если нужно (по умолчанию собираем)
+    if [ "${BUILD_ON_START:-1}" = "1" ]; then
+        $compose_cmd build --quiet 2>/dev/null || true
+    fi
+    
     $compose_cmd up -d
     
     log "${GREEN}✓ Контейнеры запущены${NC}"
@@ -239,6 +269,60 @@ start_containers() {
         fi
         sleep 2
     done
+}
+
+# Остановка контейнеров
+stop_containers() {
+    log "${BLUE}Остановка контейнеров...${NC}"
+    
+    local compose_cmd=$(get_compose_cmd)
+    
+    if [ -f "docker-compose.yml" ]; then
+        $compose_cmd stop
+        log "${GREEN}✓ Контейнеры остановлены${NC}"
+        return 0
+    else
+        log "${YELLOW}⚠ docker-compose.yml не найден${NC}"
+        return 1
+    fi
+}
+
+# Перезапуск контейнеров
+restart_containers() {
+    log "${BLUE}Перезапуск контейнеров...${NC}"
+    
+    local compose_cmd=$(get_compose_cmd)
+    
+    # Загрузка .env
+    if [ -f ".env" ]; then
+        export $(grep -v '^#' .env | xargs)
+    fi
+    
+    if [ -f "docker-compose.yml" ]; then
+        $compose_cmd restart
+        log "${GREEN}✓ Контейнеры перезапущены${NC}"
+        return 0
+    else
+        log "${YELLOW}⚠ docker-compose.yml не найден${NC}"
+        return 1
+    fi
+}
+
+# Статус контейнеров
+status_containers() {
+    local compose_cmd=$(get_compose_cmd)
+    
+    if [ -f "docker-compose.yml" ]; then
+        echo ""
+        echo -e "${BLUE}Статус контейнеров:${NC}"
+        echo ""
+        $compose_cmd ps
+        echo ""
+        return 0
+    else
+        log "${YELLOW}⚠ docker-compose.yml не найден${NC}"
+        return 1
+    fi
 }
 
 # Скачивание SQL файлов
@@ -410,6 +494,26 @@ parse_arguments() {
             --update-library)
                 UPDATE_LIBRARY=1
                 shift
+                ;;
+            --build)
+                build_containers
+                exit $?
+                ;;
+            --start)
+                start_containers
+                exit $?
+                ;;
+            --stop)
+                stop_containers
+                exit $?
+                ;;
+            --restart)
+                restart_containers
+                exit $?
+                ;;
+            --status)
+                status_containers
+                exit $?
                 ;;
             --skip-checks)
                 SKIP_CHECKS=1
