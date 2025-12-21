@@ -34,6 +34,9 @@ WEB_PORT="27100"
 DB_PORT="27101"
 AUTO_INIT=1
 SHOW_PASSWORD=1
+DOWNLOAD_SQL=0
+DOWNLOAD_COVERS=0
+UPDATE_LIBRARY=0
 
 # Получение абсолютного пути
 get_absolute_path() {
@@ -449,23 +452,42 @@ show_advanced_options() {
         checklist_result=$(dialog_checklist "Дополнительные опции" \
             "Выберите опции:" \
             "auto_init" "Автоматическая инициализация БД" $AUTO_INIT \
-            "show_password" "Показать пароль после установки" $SHOW_PASSWORD)
+            "show_password" "Показать пароль после установки" $SHOW_PASSWORD \
+            "download_sql" "Скачать SQL файлы с Флибусты" $DOWNLOAD_SQL \
+            "download_covers" "Скачать обложки книг" $DOWNLOAD_COVERS \
+            "update_library" "Обновить библиотеку (ежедневные обновления)" $UPDATE_LIBRARY)
     else
         checklist_result=$(whiptail --title "Дополнительные опции" \
-            --checklist "Выберите опции:" 10 40 2 \
+            --checklist "Выберите опции:" 15 50 5 \
             "auto_init" "Автоматическая инициализация БД" $AUTO_INIT \
             "show_password" "Показать пароль после установки" $SHOW_PASSWORD \
+            "download_sql" "Скачать SQL файлы с Флибусты" $DOWNLOAD_SQL \
+            "download_covers" "Скачать обложки книг" $DOWNLOAD_COVERS \
+            "update_library" "Обновить библиотеку (ежедневные обновления)" $UPDATE_LIBRARY \
             3>&1 1>&2 2>&3)
     fi
     
     if [ $? -eq 0 ]; then
         AUTO_INIT=0
         SHOW_PASSWORD=0
+        DOWNLOAD_SQL=0
+        DOWNLOAD_COVERS=0
+        UPDATE_LIBRARY=0
+        
         if echo "$checklist_result" | grep -q "auto_init"; then
             AUTO_INIT=1
         fi
         if echo "$checklist_result" | grep -q "show_password"; then
             SHOW_PASSWORD=1
+        fi
+        if echo "$checklist_result" | grep -q "download_sql"; then
+            DOWNLOAD_SQL=1
+        fi
+        if echo "$checklist_result" | grep -q "download_covers"; then
+            DOWNLOAD_COVERS=1
+        fi
+        if echo "$checklist_result" | grep -q "update_library"; then
+            UPDATE_LIBRARY=1
         fi
     fi
 }
@@ -543,12 +565,19 @@ start_installation() {
             AUTO_INIT_FLAG="--no-auto-init"
         fi
         
+        # Формируем команду с опциями скачивания
+        local download_flags=""
+        [ $DOWNLOAD_SQL -eq 1 ] && download_flags+=" --download-sql"
+        [ $DOWNLOAD_COVERS -eq 1 ] && download_flags+=" --download-covers"
+        [ $UPDATE_LIBRARY -eq 1 ] && download_flags+=" --update-library"
+        
         bash install.sh --db-password "$DB_PASSWORD" \
             --port "$WEB_PORT" \
             --db-port "$DB_PORT" \
             --sql-dir "$SQL_DIR" \
             --books-dir "$BOOKS_DIR" \
             $AUTO_INIT_FLAG \
+            $download_flags \
             --skip-checks > /dev/null 2>&1
         echo "100"
         echo "XXX"

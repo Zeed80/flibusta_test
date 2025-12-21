@@ -20,6 +20,9 @@ BOOKS_DIR="./Flibusta.Net"
 AUTO_INIT=1
 SKIP_CHECKS=0
 QUICK_MODE=0
+DOWNLOAD_SQL=0
+DOWNLOAD_COVERS=0
+UPDATE_LIBRARY=0
 
 # Логирование
 LOG_FILE="install.log"
@@ -128,6 +131,33 @@ interactive_setup() {
         AUTO_INIT=0
     fi
     
+    # Скачивание SQL файлов
+    read -p "7. Скачать SQL файлы с Флибусты? [y/N]: " download_sql_choice
+    download_sql_choice=${download_sql_choice:-N}
+    if [[ "$download_sql_choice" =~ ^[Yy]$ ]]; then
+        DOWNLOAD_SQL=1
+    else
+        DOWNLOAD_SQL=0
+    fi
+    
+    # Скачивание обложек
+    read -p "8. Скачать обложки книг? [y/N]: " download_covers_choice
+    download_covers_choice=${download_covers_choice:-N}
+    if [[ "$download_covers_choice" =~ ^[Yy]$ ]]; then
+        DOWNLOAD_COVERS=1
+    else
+        DOWNLOAD_COVERS=0
+    fi
+    
+    # Обновление библиотеки
+    read -p "9. Обновить библиотеку (скачать ежедневные обновления)? [y/N]: " update_library_choice
+    update_library_choice=${update_library_choice:-N}
+    if [[ "$update_library_choice" =~ ^[Yy]$ ]]; then
+        UPDATE_LIBRARY=1
+    else
+        UPDATE_LIBRARY=0
+    fi
+    
     echo ""
 }
 
@@ -211,6 +241,87 @@ start_containers() {
     done
 }
 
+# Скачивание SQL файлов
+download_sql() {
+    if [ $DOWNLOAD_SQL -eq 0 ]; then
+        return 0
+    fi
+    
+    log "${BLUE}Скачивание SQL файлов с Флибусты...${NC}"
+    
+    if [ ! -f "getsql.sh" ]; then
+        log "${YELLOW}⚠ Скрипт getsql.sh не найден${NC}"
+        return 0
+    fi
+    
+    # Создаем директорию если не существует
+    mkdir -p "$SQL_DIR"
+    
+    # Устанавливаем переменную окружения для скрипта
+    export FLIBUSTA_SQL_DIR="$SQL_DIR"
+    
+    # Запускаем скрипт скачивания (без импорта, так как контейнеры могут быть еще не запущены)
+    if bash getsql.sh 2>&1 | grep -v "docker exec" | tee -a "$LOG_FILE"; then
+        log "${GREEN}✓ SQL файлы скачаны${NC}"
+    else
+        log "${YELLOW}⚠ Ошибка при скачивании SQL файлов${NC}"
+    fi
+}
+
+# Скачивание обложек
+download_covers() {
+    if [ $DOWNLOAD_COVERS -eq 0 ]; then
+        return 0
+    fi
+    
+    log "${BLUE}Скачивание обложек книг...${NC}"
+    
+    if [ ! -f "getcovers.sh" ]; then
+        log "${YELLOW}⚠ Скрипт getcovers.sh не найден${NC}"
+        return 0
+    fi
+    
+    # Создаем директорию cache если не существует
+    mkdir -p cache
+    
+    # Устанавливаем переменную окружения для скрипта
+    export FLIBUSTA_CACHE_DIR="cache"
+    
+    # Запускаем скрипт скачивания
+    if bash getcovers.sh 2>&1 | tee -a "$LOG_FILE"; then
+        log "${GREEN}✓ Обложки скачаны${NC}"
+    else
+        log "${YELLOW}⚠ Ошибка при скачивании обложек${NC}"
+    fi
+}
+
+# Обновление библиотеки
+update_library() {
+    if [ $UPDATE_LIBRARY -eq 0 ]; then
+        return 0
+    fi
+    
+    log "${BLUE}Обновление библиотеки (скачивание ежедневных обновлений)...${NC}"
+    
+    if [ ! -f "update_daily.sh" ]; then
+        log "${YELLOW}⚠ Скрипт update_daily.sh не найден${NC}"
+        return 0
+    fi
+    
+    # Создаем директорию если не существует
+    mkdir -p "$BOOKS_DIR"
+    
+    # Устанавливаем переменную окружения для скрипта
+    export FLIBUSTA_DATA_DIR="$BOOKS_DIR"
+    
+    # Запускаем скрипт обновления
+    if bash update_daily.sh 2>&1 | tee -a "$LOG_FILE"; then
+        log "${GREEN}✓ Библиотека обновлена${NC}"
+    else
+        log "${YELLOW}⚠ Ошибка при обновлении библиотеки${NC}"
+    fi
+}
+
 # Инициализация БД
 init_database() {
     if [ $AUTO_INIT -eq 0 ]; then
@@ -288,6 +399,18 @@ parse_arguments() {
                 AUTO_INIT=0
                 shift
                 ;;
+            --download-sql)
+                DOWNLOAD_SQL=1
+                shift
+                ;;
+            --download-covers)
+                DOWNLOAD_COVERS=1
+                shift
+                ;;
+            --update-library)
+                UPDATE_LIBRARY=1
+                shift
+                ;;
             --skip-checks)
                 SKIP_CHECKS=1
                 shift
@@ -333,6 +456,11 @@ main() {
     
     # Создание .env
     create_env_file
+    
+    # Скачивание данных (до запуска контейнеров)
+    download_sql
+    download_covers
+    update_library
     
     # Запуск контейнеров
     start_containers
