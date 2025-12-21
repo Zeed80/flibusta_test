@@ -4,6 +4,8 @@ Docker-контейнер для локальной копии библиоте�
 
 > **Примечание**: Этот проект является форком оригинального репозитория [zlsl/flibusta](https://github.com/zlsl/flibusta) с существенными улучшениями и модернизацией.
 
+**Репозиторий проекта**: [https://github.com/Zeed80/flibusta_test](https://github.com/Zeed80/flibusta_test)
+
 ## 🚀 Возможности
 
 ### Основные функции
@@ -47,15 +49,15 @@ Docker-контейнер для локальной копии библиоте�
 #### 1. Клонирование репозитория
 
 ```bash
-git clone https://github.com/yourusername/flibusta.git
-cd flibusta
+git clone https://github.com/Zeed80/flibusta_test.git
+cd flibusta_test
 ```
 
 Или скачайте архив и распакуйте его:
 ```bash
-wget https://github.com/yourusername/flibusta/archive/main.zip
+wget https://github.com/Zeed80/flibusta_test/archive/main.zip
 unzip main.zip
-cd flibusta-main
+cd flibusta_test-main
 ```
 
 #### 2. Создание необходимых директорий
@@ -382,13 +384,13 @@ docker-compose exec php-fpm rm -rf /application/cache/authors/* /application/cac
 
 **Windows (PowerShell):**
 ```powershell
-.\publish_to_github.ps1 -RemoteUrl "https://github.com/username/flibusta.git"
+.\publish_to_github.ps1 -RemoteUrl "https://github.com/Zeed80/flibusta_test.git"
 ```
 
 **Linux / macOS:**
 ```bash
 chmod +x publish_to_github.sh
-./publish_to_github.sh https://github.com/username/flibusta.git
+./publish_to_github.sh https://github.com/Zeed80/flibusta_test.git
 ```
 
 Подробные инструкции см. в [PUBLISHING.md](PUBLISHING.md).
@@ -440,7 +442,10 @@ docker-compose restart
 # Остановка контейнеров
 docker-compose down
 
-# Получение обновлений
+# Получение обновлений из репозитория
+git pull https://github.com/Zeed80/flibusta_test.git main
+
+# Или если remote уже настроен:
 git pull origin main
 
 # Пересборка и запуск
