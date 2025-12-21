@@ -7,11 +7,17 @@ services:
             - 'db-data:/var/lib/postgresql/data'
             - './application:/application'
         environment:
-            - POSTGRES_USER=flibusta
-            - POSTGRES_PASSWORD=flibusta
-            - POSTGRES_DB=flibusta
+            - POSTGRES_USER=${FLIBUSTA_DBUSER:-flibusta}
+            - POSTGRES_PASSWORD=${FLIBUSTA_DBPASSWORD:-flibusta}
+            - POSTGRES_DB=${FLIBUSTA_DBNAME:-flibusta}
         ports:
-            - '27101:5432'
+            - '${FLIBUSTA_DB_PORT:-27101}:5432'
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${FLIBUSTA_DBUSER:-flibusta} -d ${FLIBUSTA_DBNAME:-flibusta}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 30s
 
     webserver:
         image: 'nginx:alpine'
@@ -22,7 +28,10 @@ services:
             - './Flibusta.Net:/application/flibusta'
             - './phpdocker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf'
         ports:
-            - '27100:80'
+            - '${FLIBUSTA_PORT:-27100}:80'
+        depends_on:
+            php-fpm:
+                condition: service_healthy
 
     php-fpm:
         build: phpdocker/php-fpm
@@ -35,13 +44,22 @@ services:
             - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
             - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
         environment:
-            - FLIBUSTA_DBUSER=flibusta
-            - FLIBUSTA_DBNAME=flibusta
-            - FLIBUSTA_DBTYPE=postgres
-            - FLIBUSTA_DBHOST=postgres
+            - FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER:-flibusta}
+            - FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME:-flibusta}
+            - FLIBUSTA_DBTYPE=${FLIBUSTA_DBTYPE:-postgres}
+            - FLIBUSTA_DBHOST=${FLIBUSTA_DBHOST:-postgres}
             - FLIBUSTA_DBPASSWORD_FILE=/run/secrets/FLIBUSTA_PWD
         secrets:
             - FLIBUSTA_PWD
+        depends_on:
+            postgres:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD-SHELL", "php-fpm-healthcheck || php -r 'exit(fastcgi_finish_request() ? 0 : 1);' || exit 1"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
 
 
 volumes:

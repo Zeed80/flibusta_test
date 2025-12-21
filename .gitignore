@@ -17,6 +17,7 @@ cache/*
 *~
 .DS_Store
 Thumbs.db
+install.log
 
 # IDE
 .idea/
@@ -30,3 +31,10 @@ docker-compose.override.yml
 
 # Системные файлы
 blob/1
+
+# Скрипты установки (оставляем в репозитории)
+# install.sh
+# install-tui.sh
+# quick_start.sh
+# uninstall.sh
+# scripts/
