@@ -188,10 +188,38 @@ cp /path/to/books/* Flibusta.Net/
 ### 5. Создание .env файла
 
 ```bash
-cp .env.example .env
-# Отредактируйте .env файл
+# Создание .env файла из примера
+if [ -f ".env.example" ]; then
+    cp .env.example .env
+else
+    # Если .env.example не существует, создайте .env вручную
+    cat > .env << 'EOF'
+# Flibusta Local Mirror - Конфигурация
+FLIBUSTA_DBUSER=flibusta
+FLIBUSTA_DBNAME=flibusta
+FLIBUSTA_DBTYPE=postgres
+FLIBUSTA_DBHOST=postgres
+FLIBUSTA_DBPASSWORD=your_secure_password_here
+FLIBUSTA_WEBROOT=
+FLIBUSTA_PORT=27100
+FLIBUSTA_DB_PORT=27101
+EOF
+fi
+
+# Отредактируйте .env файл (используйте любой редактор)
+# Обязательно измените FLIBUSTA_DBPASSWORD на безопасный пароль!
+
+# Если nano установлен:
 nano .env
+
+# Или используйте vi/vim (обычно доступны по умолчанию):
+# vi .env
+# vim .env
+
+# Или любой другой текстовый редактор, доступный в вашей системе
 ```
+
+**Важно:** Обязательно измените значение `FLIBUSTA_DBPASSWORD` на безопасный пароль перед запуском контейнеров!
 
 ### 6. Запуск контейнеров
 
@@ -253,8 +281,9 @@ sudo chmod +x /usr/local/bin/docker-compose
 sudo ss -tuln | grep 27100
 sudo ss -tuln | grep 27101
 
-# Измените порты в .env файле
+# Измените порты в .env файле (используйте любой редактор)
 nano .env
+# или vi .env, или другой редактор
 # FLIBUSTA_PORT=8080
 # FLIBUSTA_DB_PORT=8081
 ```
