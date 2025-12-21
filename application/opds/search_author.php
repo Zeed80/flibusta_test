@@ -40,7 +40,9 @@ while ($a = $authors->fetch()) {
 		echo " <id>tag:author:$a->avtorid</id>";
 		echo " <title>$a->lastname $a->firstname $a->middlename $a->nickname</title>";
 
-		$stmt = $dbh->query("SELECT COUNT(*) as cnt FROM libbook,libavtor WHERE deleted='0' AND libavtor.bookid=libbook.bookid AND libavtor.avtorid=$a->avtorid");
+		$stmt = $dbh->prepare("SELECT COUNT(*) as cnt FROM libbook,libavtor WHERE deleted='0' AND libavtor.bookid=libbook.bookid AND libavtor.avtorid=:avtorid");
+		$stmt->bindParam(":avtorid", $a->avtorid, PDO::PARAM_INT);
+		$stmt->execute();
 		$stmt->execute();
 		$books_cnt = $stmt->fetch()->cnt;
 		$stmt = null;

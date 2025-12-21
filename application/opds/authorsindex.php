@@ -1,44 +1,86 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
 
-$letters = $_GET['letters'] ?? '';
+// Создаем фид с автоматическим определением версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
 
-if ($letters !== '') {
-    $length_letters = mb_strlen($letters, 'UTF-8');
+$letters = isset($_GET['letters']) ? trim($_GET['letters']) : '';
+
+$feed->setId('tag:root:authors');
+$feed->setTitle('Книги по авторам');
+$feed->setUpdated($cdt);
+$feed->setIcon($webroot . '/favicon.ico');
+
+// Добавляем ссылки
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds-opensearch.xml.php',
+	'search',
+	'application/opensearchdescription+xml'
+));
+
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds/authorsindex?letters={searchTerms}',
+	'search',
+	OPDSVersion::getProfile($version, 'acquisition')
+));
+
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds',
+	'start',
+	OPDSVersion::getProfile($version, 'navigation')
+));
+
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds/authorsindex' . ($letters ? '?letters=' . urlencode($letters) : ''),
+	'self',
+	OPDSVersion::getProfile($version, 'navigation')
+));
+
+$length_letters = mb_strlen($letters, 'UTF-8');
+
+// Исправляем SQL-инъекцию, используя prepared statement
+if ($length_letters > 0) {
+	$pattern = $letters . '_';
+	$query = "
+		SELECT UPPER(SUBSTR(LastName, 1, " . ($length_letters + 1) . ")) as alpha, COUNT(*) as cnt
+		FROM libavtorname
+		WHERE UPPER(SUBSTR(LastName, 1, " . ($length_letters + 1) . ")) SIMILAR TO :pattern
+		GROUP BY UPPER(SUBSTR(LastName, 1, " . ($length_letters + 1) . "))
+		ORDER BY alpha";
+	$ai = $dbh->prepare($query);
+	$ai->bindParam(":pattern", $pattern);
+	$ai->execute();
 } else {
-    $length_letters = 0; // Установите подходящее значение по умолчанию
+	$query = "
+		SELECT UPPER(SUBSTR(LastName, 1, 1)) as alpha, COUNT(*) as cnt
+		FROM libavtorname
+		GROUP BY UPPER(SUBSTR(LastName, 1, 1))
+		ORDER BY alpha";
+	$ai = $dbh->query($query);
 }
 
-echo '<?xml version="1.0" encoding="utf-8"?>';
-echo <<< _XML
- <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> <id>tag:root:authors</id>
- <title>Книги по авторам</title>
- <updated>$cdt</updated>
- <icon>/favicon.ico</icon>
- <link href="$webroot/opds-opensearch.xml.php" rel="search" type="application/opensearchdescription+xml" />
- <link href="$webroot/opds/authorsindex?letters={searchTerms}" rel="search" type="application/atom+xml" />
- <link href="$webroot/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />\n
-_XML;
-
-$query="
-	SELECT UPPER(SUBSTR(LastName, 1, ".($length_letters + 1).")) as alpha, COUNT(*) as cnt
-	FROM libavtorname
-	WHERE UPPER(SUBSTR(LastName, 1, ".($length_letters + 1).")) SIMILAR TO '".$letters."[A-ZА-Я]'
-	GROUP BY UPPER(SUBSTR(LastName, 1, ".($length_letters + 1)."))
-	ORDER BY alpha";
-$ai = $dbh->query($query);
 while ($ach = $ai->fetchObject()) {
-	echo "\n<entry> <updated>$cdt</updated>";
-	echo "<id>tag:authors:$ach->alpha</id>";
-	echo "<title>$ach->alpha</title>";
-	echo "<content type='text'>$ach->cnt авторов на $ach->alpha</content>";
-	if ($ach->cnt>500) {
-		$url="$webroot/opds/authorsindex?letters=$ach->alpha";
+	$entry = new OPDSEntry();
+	$entry->setId("tag:authors:" . htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'));
+	$entry->setTitle(htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'));
+	$entry->setUpdated($cdt);
+	$entry->setContent("$ach->cnt авторов на " . htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'), 'text');
+	
+	if ($ach->cnt > 500) {
+		$url = $webroot . '/opds/authorsindex?letters=' . urlencode($ach->alpha);
 	} else {
-		$url="$webroot/opds/search?by=author&amp;q=$ach->alpha";
+		$url = $webroot . '/opds/search?by=author&q=' . urlencode($ach->alpha);
 	}
-	echo "<link href='$url' type='application/atom+xml;profile=opds-catalog' />";
-	echo "</entry>";
+	
+	$entry->addLink(new OPDSLink(
+		$url,
+		'subsection',
+		OPDSVersion::getProfile($version, 'acquisition')
+	));
+	
+	$feed->addEntry($entry);
 }
-echo '</feed>';
+
+echo $feed->render();
 ?>

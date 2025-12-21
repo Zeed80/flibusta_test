@@ -1,59 +1,117 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
-echo '<?xml version="1.0" encoding="utf-8"?>';
-echo <<< _XML
- <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> <id>tag:root:authors</id>
- <title>Поиск по книгам</title>
- <updated>$cdt</updated>
- <icon>/favicon.ico</icon>
- <link href="$webroot/opds-opensearch.xml.php" rel="search" type="application/opensearchdescription+xml" />
- <link href="$webroot/opds/search?q={searchTerms}" rel="search" type="application/atom+xml" />
- <link href="$webroot/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />
-_XML;
 
-$q = $_GET['q'];
-$get = "?q=$q";
+// Создаем фид с автоматическим определением версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
+
+$q = isset($_GET['q']) ? trim($_GET['q']) : '';
+$get = "?q=" . urlencode($q);
 
 if ($q == '') {
 	die(':(');
 }
 
-//$filter2 = "AND libbook.Title LIKE " . DB::es('%' . $q . '%');
+// Настройка фида
+$feed->setId('tag:root:authors');
+$feed->setTitle('Поиск по книгам');
+$feed->setUpdated($cdt);
+$feed->setIcon($webroot . '/favicon.ico');
 
-$books = $dbh->prepare("SELECT DISTINCT BookId, libbook.Title as BookTitle,
-        (SELECT Body FROM libbannotations WHERE BookId=libbook.BookId LIMIT 1) as Body
-		FROM libbook
-		JOIN libgenre USING(BookId) 
-		WHERE deleted='0' AND libbook.Title LIKE :q
-		GROUP BY BookId, BookTitle, Body
+// Добавляем ссылки
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds-opensearch.xml.php',
+	'search',
+	'application/opensearchdescription+xml'
+));
+
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds/search?q={searchTerms}',
+	'search',
+	OPDSVersion::getProfile($version, 'acquisition')
+));
+
+$feed->addLink(new OPDSLink(
+	$webroot . '/opds',
+	'start',
+	OPDSVersion::getProfile($version, 'navigation')
+));
+
+// Полнотекстовый поиск по названию, автору и аннотации
+$searchParam = '%' . $q . '%';
+$books = $dbh->prepare("SELECT DISTINCT b.BookId, b.Title as BookTitle, b.time, b.lang, b.year, b.filetype, b.filesize,
+        (SELECT Body FROM libbannotations WHERE BookId=b.BookId LIMIT 1) as Body
+		FROM libbook b
+		LEFT JOIN libavtor USING(BookId)
+		LEFT JOIN libavtorname USING(AvtorId)
+		LEFT JOIN libbannotations USING(BookId)
+		WHERE b.deleted='0' 
+		AND (
+			b.Title ILIKE :q 
+			OR libavtorname.LastName ILIKE :q 
+			OR libavtorname.FirstName ILIKE :q
+			OR libbannotations.Body ILIKE :q
+		)
+		GROUP BY b.BookId, b.Title, b.time, b.lang, b.year, b.filetype, b.filesize, Body
+		ORDER BY b.time DESC
 		LIMIT 100");
-		$param = '%'.$q.'%';
-$books->bindParam(":q", $param);
+
+$books->bindParam(":q", $searchParam);
 $books->execute();
 
 while ($b = $books->fetchObject()) {
-	echo " <entry> <updated>$cdt</updated>";
-	echo " <id>tag:book:$b->bookid</id>";
-	echo " <title>" . htmlspecialchars($b->booktitle) . "</title>";
-
+	$entry = new OPDSEntry();
+	$entry->setId("tag:book:{$b->bookid}");
+	$entry->setTitle($b->booktitle);
+	$entry->setUpdated($b->time ?: date('c'));
+	
+	// Авторы
 	$as = '';
-	$authors = $dbh->query("SELECT lastname, firstname, middlename FROM libavtorname, libavtor WHERE libavtor.BookId=$b->bookid AND libavtor.AvtorId=libavtorname.AvtorId ORDER BY LastName");
+	$authors = $dbh->prepare("SELECT lastname, firstname, middlename FROM libavtorname, libavtor 
+		WHERE libavtor.BookId=:bookid AND libavtor.AvtorId=libavtorname.AvtorId ORDER BY LastName");
+	$authors->bindParam(":bookid", $b->bookid);
+	$authors->execute();
 	while ($a = $authors->fetchObject()) {
-		$as .= $a->lastname . " " . $a->firstname . " " . $a->middlename . ", ";
+		$authorName = trim("$a->lastname $a->firstname $a->middlename");
+		$as .= $authorName . ", ";
+		$entry->addAuthor($authorName, $webroot . '/opds/author?author_id=' . $a->avtorid);
 	}
-	$authors = null;
-
-	echo "<author> <name>$as</name>";
-	echo " <uri>/a/id</uri>";
-	echo "</author>";
-	echo " <content type='text/html'>" . htmlspecialchars($b->body ?? '') . "</content>";
-
-	echo "<link rel='http://opds-spec.org/image/thumbnail' href='$webroot/extract_cover.php?id=$b->bookid' type='image/jpeg'/>";
-	echo "<link rel='http://opds-spec.org/image' href='$webroot/extract_cover.php?id=$b->bookid' type='image/jpeg'/>";
-	echo " <link href='$webroot/fb2.php?id=$b->bookid' rel='http://opds-spec.org/acquisition/open-access' type='application/fb2+zip' />";
-
-	echo "</entry>\n";
+	
+	if ($b->body) {
+		$entry->setContent($b->body, 'text/html');
+	}
+	
+	// Ссылки на изображения
+	$entry->addLink(new OPDSLink(
+		$webroot . '/extract_cover.php?id=' . $b->bookid,
+		'http://opds-spec.org/image/thumbnail',
+		'image/jpeg'
+	));
+	
+	$entry->addLink(new OPDSLink(
+		$webroot . '/extract_cover.php?id=' . $b->bookid,
+		'http://opds-spec.org/image',
+		'image/jpeg'
+	));
+	
+	// Ссылка на скачивание
+	$fileType = trim($b->filetype);
+	if ($fileType == 'fb2') {
+		$mimeType = 'application/fb2+zip';
+		$downloadUrl = $webroot . '/fb2.php?id=' . $b->bookid;
+	} else {
+		$mimeType = 'application/' . $fileType;
+		$downloadUrl = $webroot . '/usr.php?id=' . $b->bookid;
+	}
+	
+	$entry->addLink(new OPDSLink(
+		$downloadUrl,
+		'http://opds-spec.org/acquisition/open-access',
+		$mimeType
+	));
+	
+	$feed->addEntry($entry);
 }
-$books = null;
+
+echo $feed->render();
 ?>
-</feed>

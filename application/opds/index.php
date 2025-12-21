@@ -1,4 +1,7 @@
 <?php
+// Подключаем автозагрузку OPDS классов
+require_once(ROOT_PATH . 'opds/core/autoload.php');
+
 switch ($url->action) {
 	case 'list':
 		include('list.php');

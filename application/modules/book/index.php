@@ -35,11 +35,11 @@ function str_replace_first($from, $to, $content) {
 
 $ext = strtolower(trim($book->filetype));
 
-if ($ext == 'fb2') {
-	$stmt = $dbh->prepare("SELECT * FROM book_zip WHERE $url->var1 BETWEEN start_id AND end_id AND usr=0");
-} else {
-	$stmt = $dbh->prepare("SELECT * FROM book_zip WHERE $url->var1 BETWEEN start_id AND end_id AND usr=1");
-}
+$bookId = (int)$url->var1;
+$usr = ($ext == 'fb2') ? 0 : 1;
+$stmt = $dbh->prepare("SELECT * FROM book_zip WHERE :bookid BETWEEN start_id AND end_id AND usr=:usr");
+$stmt->bindParam(":bookid", $bookId, PDO::PARAM_INT);
+$stmt->bindParam(":usr", $usr, PDO::PARAM_INT);
 $stmt->execute();
 $zip_name = $stmt->fetch()->filename;
 $zip = new ZipArchive(); 

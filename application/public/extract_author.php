@@ -30,7 +30,8 @@ if (file_exists(ROOT_PATH . "cache/authors/$id.jpg")) {
 	die();
 }
 
-$stmt = $dbh->prepare("SELECT file FROM libapics WHERE AvtorId=$id");
+$stmt = $dbh->prepare("SELECT file FROM libapics WHERE AvtorId=:id");
+$stmt->bindParam(":id", $id, PDO::PARAM_INT);
 $stmt->execute();
 $f = $stmt->fetch();
 

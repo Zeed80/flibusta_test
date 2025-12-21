@@ -563,12 +563,23 @@ function formatSizeUnits($bytes)
         return $bytes;
     }
 
-function opds_book($b,$webroot = '') {
+/**
+ * Создает OPDSEntry объект для книги
+ * 
+ * @param object $b Объект книги из БД
+ * @param string $webroot Базовый URL
+ * @param string $version Версия OPDS ('1.0' или '1.2')
+ * @return OPDSEntry
+ */
+function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	global $dbh;
-	echo "\n<entry> <updated>" . $b->time . "</updated>";
-	echo " <id>tag:book:$b->bookid</id>";
-	echo " <title>" . htmlspecialchars($b->title) . "</title>";
-
+	
+	$entry = new OPDSEntry();
+	$entry->setId("tag:book:{$b->bookid}");
+	$entry->setTitle($b->title);
+	$entry->setUpdated($b->time ?: date('c'));
+	
+	// Аннотация
 	$ann = $dbh->prepare("SELECT body annotation FROM libbannotations WHERE bookid=:id LIMIT 1");
 	$ann->bindParam(":id", $b->bookid);
 	$ann->execute();
@@ -577,15 +588,23 @@ function opds_book($b,$webroot = '') {
 	} else {
 		$an = '';
 	}
+	
+	// Жанры
 	$genres = $dbh->prepare("SELECT genrecode, GenreId, GenreDesc FROM libgenre 
 		JOIN libgenrelist USING(GenreId)
 		WHERE bookid=:id");
 	$genres->bindParam(":id", $b->bookid);
 	$genres->execute();
 	while ($g = $genres->fetch()) {
-		echo "<category term='$webroot/subject/" . urlencode($g->genrecode) . "' label='$g->genredesc'/>";
+		$entry->addCategory(
+			$webroot . '/subject/' . urlencode($g->genrecode),
+			$g->genredesc
+		);
+		// Также добавляем как dc:subject
+		$entry->addMetadata('dc', 'subject', $g->genredesc);
 	}
-
+	
+	// Серии
 	$sq = '';
 	$seq = $dbh->prepare("SELECT SeqId, SeqName, SeqNumb FROM libseq
 		JOIN libseqname USING(SeqId)
@@ -595,17 +614,21 @@ function opds_book($b,$webroot = '') {
 	while ($s = $seq->fetch()) {
 		$ssq = $s->seqname;
 		if ($s->seqnumb > 0) {
-			$ssq .= " ($s->seqnumb) ";
+			$ssq .= " ($s->seqnumb)";
 		}
-		$sq .= $ssq;
-		echo " <link href='$webroot/opds/list?seq_id=".$s->seqid."' rel='related' type='application/atom+xml' title='Все книги серии &quot;$ssq&quot;' />";
+		$sq .= ($sq ? ', ' : '') . $ssq;
+		$entry->addLink(new OPDSLink(
+			$webroot . '/opds/list?seq_id=' . $s->seqid,
+			'related',
+			OPDSVersion::getProfile($version, 'acquisition'),
+			'Все книги серии "' . $ssq . '"'
+		));
 	}
 	if ($sq != '') {
 		$sq = "Сборник: $sq";
 	}
-
-
-	echo "<author>";
+	
+	// Авторы
 	$au = $dbh->prepare("SELECT AvtorId, LastName, FirstName, nickname, middlename, File FROM libavtor a
 		LEFT JOIN libavtorname USING(AvtorId)
 		LEFT JOIN libapics USING(AvtorId)
@@ -613,45 +636,115 @@ function opds_book($b,$webroot = '') {
 	$au->bindParam(":id", $b->bookid);
 	$au->execute();
 	while ($a = $au->fetch()) {
-		echo "<name>$a->lastname $a->firstname $a->middlename</name>";
-		echo "<uri>/opds/author?author_id=$a->avtorid</uri>";
+		$authorName = trim("$a->lastname $a->firstname $a->middlename");
+		$entry->addAuthor($authorName, $webroot . '/opds/author?author_id=' . $a->avtorid);
+		$entry->addLink(new OPDSLink(
+			$webroot . '/opds/list?author_id=' . $a->avtorid,
+			'related',
+			OPDSVersion::getProfile($version, 'acquisition'),
+			'Все книги автора ' . $authorName
+		));
 	}
-	echo "</author>";
-	$au->execute();
-	while ($a = $au->fetch()) {
-		echo "\n <link href='$webroot/opds/list?author_id=$a->avtorid' rel='related' type='application/atom+xml' title='Все книги автора $a->lastname $a->firstname $a->middlename' />";
+	
+	// Метаданные
+	if (trim($b->lang)) {
+		$entry->addMetadata('dc', 'language', trim($b->lang));
 	}
-	echo " <dc:language>" . trim($b->lang) . "</dc:language>";
 	if ($b->year > 0) {
-		echo " <dc:issued>$b->year</dc:issued>";
+		$entry->addMetadata('dc', 'issued', (string)$b->year);
+	}
+	$entry->addMetadata('dc', 'format', trim($b->filetype));
+	if (isset($b->filesize) && $b->filesize > 0) {
+		$entry->addMetadata('dcterms', 'extent', formatSizeUnits($b->filesize));
 	}
 	
-	// Include the type of the book as <dc:format> element
-	echo " <dc:format>" . trim($b->filetype) . "</dc:format>";
-	
-	// Include the size of the book as <dcterms:extent> element using the FileSize attribute from $b
-	echo " <dcterms:extent>" . formatSizeUnits($b->filesize) . " bytes</dcterms:extent>";
-	
-	echo "\n <summary type='text'>" . strip_tags($an);
-	echo "\n $sq ";
-	echo "\n $b->keywords";
+	// Summary
+	$summary = '';
+	if ($an) {
+		$summary .= strip_tags($an) . "\n";
+	}
+	if ($sq) {
+		$summary .= $sq . "\n";
+	}
+	if (isset($b->keywords) && $b->keywords) {
+		$summary .= $b->keywords . "\n";
+	}
 	if ($b->year > 0) {
-		echo "\n Год издания: $b->year";
+		$summary .= "Год издания: $b->year\n";
 	}
-	echo "\n Формат: $b->filetype";
-	echo "\n Язык: $b->lang";
-	echo "\n Размер: " . formatSizeUnits($b->filesize);
-	echo "\n </summary>";
-
-	echo "\n <link rel='http://opds-spec.org/image/thumbnail' href='$webroot/extract_cover.php?id=$b->bookid' type='image/jpeg'/>";
-	echo "\n <link rel='http://opds-spec.org/image' href='$webroot/extract_cover.php?id=$b->bookid' type='image/jpeg'/>";
-	if (trim($b->filetype) == 'fb2') {
-		$ur = 'fb2';
+	$summary .= "Формат: " . trim($b->filetype) . "\n";
+	if (trim($b->lang)) {
+		$summary .= "Язык: " . trim($b->lang) . "\n";
+	}
+	if (isset($b->filesize) && $b->filesize > 0) {
+		$summary .= "Размер: " . formatSizeUnits($b->filesize);
+	}
+	if ($summary) {
+		$entry->setSummary(trim($summary), 'text');
+	}
+	
+	// Ссылки на изображения
+	$entry->addLink(new OPDSLink(
+		$webroot . '/extract_cover.php?id=' . $b->bookid,
+		'http://opds-spec.org/image/thumbnail',
+		'image/jpeg'
+	));
+	$entry->addLink(new OPDSLink(
+		$webroot . '/extract_cover.php?id=' . $b->bookid,
+		'http://opds-spec.org/image',
+		'image/jpeg'
+	));
+	
+	// Ссылка на скачивание с правильными MIME-типами
+	$fileType = trim($b->filetype);
+	$mimeTypes = [
+		'fb2' => 'application/fb2+zip',
+		'epub' => 'application/epub+zip',
+		'mobi' => 'application/x-mobipocket-ebook',
+		'pdf' => 'application/pdf',
+		'txt' => 'text/plain',
+		'html' => 'text/html',
+		'htm' => 'text/html',
+		'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+		'rtf' => 'application/rtf',
+		'djvu' => 'image/vnd.djvu',
+		'djv' => 'image/vnd.djvu'
+	];
+	
+	$mimeType = isset($mimeTypes[$fileType]) ? $mimeTypes[$fileType] : 'application/' . $fileType;
+	
+	if ($fileType == 'fb2') {
+		$downloadUrl = $webroot . '/fb2.php?id=' . $b->bookid;
 	} else {
-		$ur = 'usr';
+		$downloadUrl = $webroot . '/usr.php?id=' . $b->bookid;
 	}
-	echo "\n <link href='$webroot/$ur.php?id=$b->bookid' rel='http://opds-spec.org/acquisition/open-access' type='application/" . trim($b->filetype) . "' />";
-	echo "\n <link href='$webroot/book/view/$b->bookid' rel='alternate' type='text/html' title='Книга на сайте' />";
+	
+	$entry->addLink(new OPDSLink(
+		$downloadUrl,
+		'http://opds-spec.org/acquisition/open-access',
+		$mimeType
+	));
+	
+	// Ссылка на веб-страницу
+	$entry->addLink(new OPDSLink(
+		$webroot . '/book/view/' . $b->bookid,
+		'alternate',
+		'text/html',
+		'Книга на сайте'
+	));
+	
+	return $entry;
+}
 
-	echo "</entry>\n";
+/**
+ * Старая функция для обратной совместимости
+ * @deprecated Используйте opds_book_entry() вместо этого
+ */
+function opds_book($b, $webroot = '') {
+	$version = OPDSVersion::detect();
+	if ($version === OPDSVersion::VERSION_AUTO) {
+		$version = OPDSVersion::VERSION_1_2;
+	}
+	$entry = opds_book_entry($b, $webroot, $version);
+	echo $entry->render($version);
 }

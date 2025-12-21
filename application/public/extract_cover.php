@@ -60,7 +60,8 @@ if ($small) {
 	}
 }
 
-$stmt = $dbh->prepare("SELECT file FROM libbpics WHERE BookId=$id");
+$stmt = $dbh->prepare("SELECT file FROM libbpics WHERE BookId=:id");
+$stmt->bindParam(":id", $id, PDO::PARAM_INT);
 $stmt->execute();
 $f = $stmt->fetch();
 
@@ -88,7 +89,8 @@ if (isset($f->file)) {
 }
 
 
-$stmt = $dbh->prepare("SELECT filetype FROM libbook WHERE bookid=$id LIMIT 1");
+$stmt = $dbh->prepare("SELECT filetype FROM libbook WHERE bookid=:id LIMIT 1");
+$stmt->bindParam(":id", $id, PDO::PARAM_INT);
 $stmt->execute();
 $type = trim($stmt->fetch()->filetype);
 if ($type == 'fb2') {
@@ -97,12 +99,17 @@ if ($type == 'fb2') {
 	$u = '1';
 }
 
-$stmt = $dbh->prepare("SELECT * FROM book_zip WHERE $id BETWEEN start_id AND end_id AND usr=$u");
+$stmt = $dbh->prepare("SELECT * FROM book_zip WHERE :id BETWEEN start_id AND end_id AND usr=:usr");
+$stmt->bindParam(":id", $id, PDO::PARAM_INT);
+$stmt->bindParam(":usr", $u, PDO::PARAM_INT);
 $stmt->execute();
 $zip_name = $stmt->fetch()->filename;
 $zip = new ZipArchive(); 
 
-$result = $dbh->query("SELECT filename FROM libfilename where BookId=$id")->fetch();
+$result = $dbh->prepare("SELECT filename FROM libfilename where BookId=:id");
+$result->bindParam(":id", $id, PDO::PARAM_INT);
+$result->execute();
+$result = $result->fetch();
 
 if ($result) {
     $filename = $result->filename;

@@ -1,14 +1,18 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
-echo '<?xml version="1.0" encoding="utf-8"?>';echo "\n";
-echo '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="https://specs.opds.io/opds-1.2">';
 
-$author_id = $_GET['author_id'];
-if ($author_id == '')
+// Создаем фид с автоматическим определением версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
+
+$author_id = isset($_GET['author_id']) ? (int)$_GET['author_id'] : 0;
+if ($author_id == 0) {
     die('author.php called without specifying id');
+}
 
 $seq_mode = isset($_GET['seq']);
-if (! $seq_mode)  {  
+
+if (! $seq_mode) {  
     $stmt = $dbh->prepare("SELECT a.LastName as LastName, a.MiddleName as MiddleName, a.FirstName as FirstName, a.NickName as NickName,
         aa.Body as Body,  p.File as picFile 
         from libavtorname a 
@@ -19,116 +23,187 @@ if (! $seq_mode)  {
     $stmt = $dbh->prepare("SELECT LastName, MiddleName, FirstName, NickName from libavtorname where avtorID=:authorid ");
 }
 
-$stmt->bindParam(':authorid', $author_id);
+$stmt->bindParam(':authorid', $author_id, PDO::PARAM_INT);
 $stmt->execute();
 if ($a = $stmt->fetchObject()){
     $author_name = ($a->nickname !='')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
                             :"$a->firstname  $a->middlename $a->lastname";
    
     if ($seq_mode) { // show list of sequences with current author's works
-       
-        echo <<<_XML
-        <id>tag:author:$author_id:sequences</id>
-        <title>$author_name : Книги по сериям</title>
-        <updated>$cdt</updated>
-        <icon>/favicon.ico</icon>
-        <link href="$webroot/opds-opensearch.xml.php" rel="search" type="application/opensearchdescription+xml" />
-        <link href="$webroot/opds/search?by=author&searchTerm={searchTerms}" rel="search" type="application/atom+xml" />
-        <link href="$webroot/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />
-        _XML;
+        $feed->setId("tag:author:$author_id:sequences");
+        $feed->setTitle("$author_name : Книги по сериям");
+        $feed->setUpdated($cdt);
+        $feed->setIcon($webroot . '/favicon.ico');
+        
+        $feed->addLink(new OPDSLink(
+            $webroot . '/opds-opensearch.xml.php',
+            'search',
+            'application/opensearchdescription+xml'
+        ));
+        
+        $feed->addLink(new OPDSLink(
+            $webroot . '/opds/search?by=author&searchTerm={searchTerms}',
+            'search',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        
+        $feed->addLink(new OPDSLink(
+            $webroot . '/opds',
+            'start',
+            OPDSVersion::getProfile($version, 'navigation')
+        ));
+        
         $sequences = $dbh->prepare("SELECT distinct sn.seqid seqid, sn.seqname seqname
         from libseqname sn, libseq s, libavtor a 
         where sn.seqid = s.seqid and s.bookId= a.bookId and a.avtorId= :aid");
-        $sequences->bindParam(":aid", $author_id);
+        $sequences->bindParam(":aid", $author_id, PDO::PARAM_INT);
         $sequences->execute();
         while($seq = $sequences->fetchObject()){
-            echo "<entry>\n";
-            echo "<updated>$cdt</updated>\n";
-            echo "<title>"  . htmlspecialchars($seq->seqname ?? '') . "</title>\n";
-            echo "<link href='$webroot/opds/list?seq_id=$seq->seqid'  type='application/atom+xml;profile=opds-catalog' />\n";
-            echo "</entry>\n";
+            $entry = new OPDSEntry();
+            $entry->setId("tag:seq:$seq->seqid");
+            $entry->setTitle($seq->seqname ?? '');
+            $entry->setUpdated($cdt);
+            $entry->addLink(new OPDSLink(
+                $webroot . '/opds/list?seq_id=' . $seq->seqid,
+                'subsection',
+                OPDSVersion::getProfile($version, 'acquisition')
+            ));
+            $feed->addEntry($entry);
         }
-        $sequences = null;
     } else {
-        echo <<<_XML
-        <id>tag:author:$author_id</id>
-        <title>$author_name</title>
-        <updated>$cdt</updated>
-        <icon>/favicon.ico</icon>
-        <link href="$webroot/opds-opensearch.xml" rel="search" type="application/opensearchdescription+xml" />
-        <link href="$webroot/opds/search?by=author&amp;searchTerm={searchTerms}" rel="search" type="application/atom+xml" />
-        <link href="$webroot/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />
+        $feed->setId("tag:author:$author_id");
+        $feed->setTitle($author_name);
+        $feed->setUpdated($cdt);
+        $feed->setIcon($webroot . '/favicon.ico');
+        
+        $feed->addLink(new OPDSLink(
+            $webroot . '/opds-opensearch.xml.php',
+            'search',
+            'application/opensearchdescription+xml'
+        ));
+        
+        $feed->addLink(new OPDSLink(
+            $webroot . '/opds/search?by=author&searchTerm={searchTerms}',
+            'search',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        
+        $feed->addLink(new OPDSLink(
+            $webroot . '/opds',
+            'start',
+            OPDSVersion::getProfile($version, 'navigation')
+        ));
 
-        _XML;
         if ($a->body != '') {
-            echo <<<_XML
-            <entry>
-            <updated>$cdt</updated>
-            <id>tag:author:bio:$author_id</id>
-            <title>Об авторе</title>
-            _XML;
+            $bioEntry = new OPDSEntry();
+            $bioEntry->setId("tag:author:bio:$author_id");
+            $bioEntry->setTitle('Об авторе');
+            $bioEntry->setUpdated($cdt);
+            
             if (!is_null($a->picfile)){
-                echo <<<_XML
-                    <link href="$webroot/extract_author.php?id=$author_id" rel="http://opds-spec.org/image" type="image/jpeg" />
-                    <link href="$webroot/extract_author.php?id=$author_id" rel="x-stanza-cover-image" type="image/jpeg" />
-                    <link href="$webroot/extract_author.php?id=$author_id" rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" />
-                    <link href="$webroot/extract_author.php?id=$author_id" rel="x-stanza-cover-image-thumbnail" type="image/jpeg" /> 
-
-                _XML;
+                $bioEntry->addLink(new OPDSLink(
+                    $webroot . '/extract_author.php?id=' . $author_id,
+                    'http://opds-spec.org/image',
+                    'image/jpeg'
+                ));
+                $bioEntry->addLink(new OPDSLink(
+                    $webroot . '/extract_author.php?id=' . $author_id,
+                    'http://opds-spec.org/image/thumbnail',
+                    'image/jpeg'
+                ));
             }
-            //echo '<content type = "text/html">';
-            echo '<content type="text/html">';
-           /* if (!is_null($a->picfile)){
-                echo "&lt;img src=&quot;/extract_author.php?id=$author_id&quot; align=left style=&quot;border:5px solid #ededed; margin: 12px;&quot;&gt;&lt;p&gt;\n";
-            }*/
-            echo $a->body;
-            echo "\n";
-            echo <<< _XML
-                </content>
-                <link href="$webroot/author/view/$author_id" rel="alternate" type="text/html" title="Страница автора на сайте" />
-                <link href="$webroot/author/view/$author_id" rel="http://opds-spec.org/acquisition" type="text/html" title="Страница автора на сайте" />
-                <link href="$webroot/opds/list?author_id=$author_id&amp;display_type=alphabet" rel="http://www.feedbooks.com/opds/facet" type="application/atom+xml;profile=opds-catalog" title="Книги автора по алфавиту" />
-                <link href="$webroot/opds/author?author_id=$author_id&amp;seq=1" rel="http://www.feedbooks.com/opds/facet" type="application/atom+xml;profile=opds-catalog" title="Книжные серии с произведениями автора" />
-                <link href="$webroot/opds/list?author_id=$author_id&amp;display_type=sequenceless" rel="http://www.feedbooks.com/opds/facet" type="application/atom+xml;profile=opds-catalog" title="Книги автора вне серий" />
-            </entry>
-            _XML;
+            
+            $bioEntry->setContent($a->body, 'text/html');
+            $bioEntry->addLink(new OPDSLink(
+                $webroot . '/author/view/' . $author_id,
+                'alternate',
+                'text/html',
+                'Страница автора на сайте'
+            ));
+            $bioEntry->addLink(new OPDSLink(
+                $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
+                'http://www.feedbooks.com/opds/facet',
+                OPDSVersion::getProfile($version, 'acquisition'),
+                'Книги автора по алфавиту'
+            ));
+            $bioEntry->addLink(new OPDSLink(
+                $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
+                'http://www.feedbooks.com/opds/facet',
+                OPDSVersion::getProfile($version, 'acquisition'),
+                'Книжные серии с произведениями автора'
+            ));
+            $bioEntry->addLink(new OPDSLink(
+                $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
+                'http://www.feedbooks.com/opds/facet',
+                OPDSVersion::getProfile($version, 'acquisition'),
+                'Книги автора вне серий'
+            ));
+            $feed->addEntry($bioEntry);
         }
-        echo <<< _XML
-        <entry>
-        <updated>$cdt</updated>
-        <title>Все книги автора (без сортировки)</title>
-        <id>tag:author:$author_id:list</id>
-        <link href="$webroot/opds/list?author_id=$author_id" type="application/atom+xml;profile=opds-catalog" />
-        </entry>
-        <entry>
-        <updated>$cdt</updated>
-        <title>Книги автора по алфавиту</title>
-        <id>tag:author:$author_id:alphabet</id>
-        <link href="$webroot/opds/list?author_id=$author_id&amp;display_type=alphabet" type="application/atom+xml;profile=opds-catalog" />
-        </entry>
-        <entry>
-        <updated>$cdt</updated>
-        <title>Книги автора по году издания</title>
-        <id>tag:author:$author_id:year</id>
-        <link href="$webroot/opds/list?author_id=$author_id&amp;display_type=year" type="application/atom+xml;profile=opds-catalog" />
-        </entry>
-        <entry>
-        <updated>$cdt</updated>
-        <title>Книжные серии с произведениями автора</title>
-        <id>tag:author:$author_id:sequences</id>
-        <link href="$webroot/opds/author?author_id=$author_id&amp;seq=1" type="application/atom+xml;profile=opds-catalog" />
-        </entry>
-        <entry>
-        <updated>$cdt</updated>
-        <title>Произведения  вне серий</title>
-        <id>tag:author:$author_id:sequenceless</id>
-        <link href="$webroot/opds/list?author_id=$author_id&amp;display_type=sequenceless" type="application/atom+xml;profile=opds-catalog" />
-        </entry>
-        _XML;
+        
+        // Все книги автора
+        $allBooksEntry = new OPDSEntry();
+        $allBooksEntry->setId("tag:author:$author_id:list");
+        $allBooksEntry->setTitle('Все книги автора (без сортировки)');
+        $allBooksEntry->setUpdated($cdt);
+        $allBooksEntry->addLink(new OPDSLink(
+            $webroot . '/opds/list?author_id=' . $author_id,
+            'subsection',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        $feed->addEntry($allBooksEntry);
+        
+        // По алфавиту
+        $alphabetEntry = new OPDSEntry();
+        $alphabetEntry->setId("tag:author:$author_id:alphabet");
+        $alphabetEntry->setTitle('Книги автора по алфавиту');
+        $alphabetEntry->setUpdated($cdt);
+        $alphabetEntry->addLink(new OPDSLink(
+            $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
+            'subsection',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        $feed->addEntry($alphabetEntry);
+        
+        // По году
+        $yearEntry = new OPDSEntry();
+        $yearEntry->setId("tag:author:$author_id:year");
+        $yearEntry->setTitle('Книги автора по году издания');
+        $yearEntry->setUpdated($cdt);
+        $yearEntry->addLink(new OPDSLink(
+            $webroot . '/opds/list?author_id=' . $author_id . '&display_type=year',
+            'subsection',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        $feed->addEntry($yearEntry);
+        
+        // Серии
+        $seqEntry = new OPDSEntry();
+        $seqEntry->setId("tag:author:$author_id:sequences");
+        $seqEntry->setTitle('Книжные серии с произведениями автора');
+        $seqEntry->setUpdated($cdt);
+        $seqEntry->addLink(new OPDSLink(
+            $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
+            'subsection',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        $feed->addEntry($seqEntry);
+        
+        // Вне серий
+        $sequencelessEntry = new OPDSEntry();
+        $sequencelessEntry->setId("tag:author:$author_id:sequenceless");
+        $sequencelessEntry->setTitle('Произведения вне серий');
+        $sequencelessEntry->setUpdated($cdt);
+        $sequencelessEntry->addLink(new OPDSLink(
+            $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
+            'subsection',
+            OPDSVersion::getProfile($version, 'acquisition')
+        ));
+        $feed->addEntry($sequencelessEntry);
     } 
-}
-else 
+} else {
     die("author with id $author_id not found in the data base");
-$stmt = null;
+}
+
+echo $feed->render();
 ?>
-</feed>
