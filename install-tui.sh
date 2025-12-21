@@ -42,9 +42,24 @@ get_absolute_path() {
         echo "$(pwd)"
     elif [[ "$path" = /* ]]; then
         echo "$path"
+    elif [[ "$path" = ./* ]] || [[ "$path" != /* ]]; then
+        # Относительный путь от корня проекта
+        local project_root="$(pwd)"
+        echo "$project_root/${path#./}"
     else
-        echo "$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
+        echo "$(cd "$(dirname "$path")" 2>/dev/null && pwd)/$(basename "$path")"
     fi
+}
+
+# Получение корня проекта (где находится скрипт)
+get_project_root() {
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    echo "$script_dir"
+}
+
+# Получение домашней директории
+get_home_dir() {
+    echo "$HOME"
 }
 
 # Определение TUI инструмента
@@ -85,9 +100,40 @@ dialog_passwordbox() {
 
 dialog_dselect() {
     if [ "$TUI_TOOL" = "dialog" ]; then
-        # Используем dselect для выбора директории (как в проводнике)
-        local default_path=$(get_absolute_path "$2")
-        dialog --stdout --title "$1" --dselect "$default_path" 20 60
+        # Используем dselect для выбора директории (как в Total Commander)
+        local title=$1
+        local default_path=$2
+        local quick_nav=$3  # Опциональный параметр для быстрой навигации
+        local abs_path=$(get_absolute_path "$default_path")
+        
+        # Обработка быстрой навигации
+        if [ -n "$quick_nav" ]; then
+            case "$quick_nav" in
+                "home")
+                    abs_path=$(get_home_dir)
+                    ;;
+                "project")
+                    abs_path=$(get_project_root)
+                    ;;
+                "current")
+                    abs_path="$(pwd)"
+                    ;;
+            esac
+        fi
+        
+        # Убеждаемся, что путь существует и это директория
+        if [ ! -d "$abs_path" ]; then
+            abs_path=$(get_project_root)
+        fi
+        
+        # Улучшенный интерфейс с подсказками и увеличенным размером
+        # Высота 25, ширина 70 для лучшей видимости
+        local full_title="$title"
+        
+        dialog --stdout \
+            --title "$full_title" \
+            --dselect "$abs_path" 25 70 \
+            --no-shadow
     else
         # whiptail не поддерживает dselect, используем inputbox
         whiptail --title "$1" --inputbox "Введите путь к папке:" 10 50 "$2" 3>&1 1>&2 2>&3
@@ -141,37 +187,97 @@ show_main_menu() {
     done
 }
 
-# Функция выбора папки
+# Функция выбора папки с улучшенной навигацией (как в Total Commander)
 select_directory() {
     local title=$1
     local default_path=$2
     local result
     local absolute_default
+    local project_root=$(get_project_root)
     
-    # Преобразуем относительный путь в абсолютный
-    if [ -z "$default_path" ]; then
-        absolute_default="$(pwd)"
-    elif [[ "$default_path" = /* ]]; then
-        absolute_default="$default_path"
+    # Показываем меню быстрой навигации перед выбором
+    if [ "$TUI_TOOL" = "dialog" ]; then
+        local nav_choice
+        nav_choice=$(dialog_menu "Навигация" \
+            "Выберите начальную папку:" \
+            "1" "Текущая папка проекта: $project_root" \
+            "2" "Домашняя папка: $(get_home_dir)" \
+            "3" "Текущая рабочая директория: $(pwd)" \
+            "4" "Указать путь вручную" \
+            "0" "Отмена")
+        
+        case $nav_choice in
+            1)
+                absolute_default="$project_root"
+                ;;
+            2)
+                absolute_default=$(get_home_dir)
+                ;;
+            3)
+                absolute_default="$(pwd)"
+                ;;
+            4)
+                # Используем исходный путь
+                if [ -z "$default_path" ]; then
+                    absolute_default="$project_root"
+                elif [[ "$default_path" = /* ]]; then
+                    absolute_default="$default_path"
+                else
+                    absolute_default="$project_root/${default_path#./}"
+                fi
+                ;;
+            0|*)
+                echo "$default_path"
+                return
+                ;;
+        esac
     else
-        absolute_default="$(cd "$(dirname "$default_path")" 2>/dev/null && pwd)/$(basename "$default_path")"
-        # Если путь не существует, используем текущую директорию
-        if [ ! -d "$absolute_default" ]; then
-            absolute_default="$(pwd)"
+        # Для whiptail используем исходный путь
+        if [ -z "$default_path" ]; then
+            absolute_default="$project_root"
+        elif [[ "$default_path" = /* ]]; then
+            absolute_default="$default_path"
+        else
+            absolute_default="$project_root/${default_path#./}"
         fi
     fi
     
-    result=$(dialog_dselect "$title" "$absolute_default")
+    # Убеждаемся, что это директория
+    if [ ! -d "$absolute_default" ]; then
+        absolute_default="$(dirname "$absolute_default" 2>/dev/null || echo "$project_root")"
+    fi
+    if [ ! -d "$absolute_default" ]; then
+        absolute_default="$project_root"
+    fi
     
-    if [ $? -eq 0 ] && [ -n "$result" ]; then
+    # Показываем диалог выбора с улучшенным интерфейсом
+    result=$(dialog_dselect "$title" "$absolute_default")
+    local dialog_exit=$?
+    
+    if [ $dialog_exit -eq 0 ] && [ -n "$result" ]; then
+        # Убеждаемся, что выбранная директория существует
+        if [ ! -d "$result" ]; then
+            # Если выбран файл, берем его директорию
+            if [ -f "$result" ]; then
+                result="$(dirname "$result")"
+            else
+                # Если путь не существует, возвращаем исходный
+                echo "$default_path"
+                return
+            fi
+        fi
+        
         # Преобразуем абсолютный путь обратно в относительный (если возможно)
-        local project_root="$(pwd)"
         if [[ "$result" = "$project_root"/* ]]; then
-            echo ".${result#$project_root}"
+            local relative_path=".${result#$project_root}"
+            echo "$relative_path"
+        elif [ "$result" = "$project_root" ]; then
+            echo "."
         else
             echo "$result"
         fi
     else
+        # При отмене возвращаем исходный путь
         echo "$default_path"
     fi
 }
@@ -179,11 +285,24 @@ select_directory() {
 # Функция выбора путей
 show_paths_selection() {
     while true; do
+        # Формируем отображение путей с полной информацией
+        local sql_display="$SQL_DIR"
+        local sql_abs=$(get_absolute_path "$SQL_DIR")
+        if [ "$sql_display" != "$sql_abs" ] && [ -n "$sql_abs" ]; then
+            sql_display="$SQL_DIR\n    ($sql_abs)"
+        fi
+        
+        local books_display="$BOOKS_DIR"
+        local books_abs=$(get_absolute_path "$BOOKS_DIR")
+        if [ "$books_display" != "$books_abs" ] && [ -n "$books_abs" ]; then
+            books_display="$BOOKS_DIR\n    ($books_abs)"
+        fi
+        
         local menu_choice
         menu_choice=$(dialog_menu "Выбор путей к данным" \
             "Выберите действие:" \
-            "1" "Папка с SQL файлами: ${SQL_DIR}" \
-            "2" "Папка с архивами книг: ${BOOKS_DIR}" \
+            "1" "Папка с SQL файлами" \
+            "2" "Папка с архивами книг" \
             "3" "Проверить выбранные папки" \
             "0" "Назад")
         
@@ -200,14 +319,21 @@ show_paths_selection() {
                     else
                         # Проверка наличия SQL файлов
                         local sql_count=$(find "$abs_path" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
-                        if [ $sql_count -eq 0 ]; then
-                            if dialog_yesno "Предупреждение" "В выбранной папке не найдено SQL файлов.\n\nПапка: $new_sql_dir\n\nПродолжить?"; then
-                                SQL_DIR="$new_sql_dir"
-                                dialog_msgbox "Информация" "Папка установлена:\n$SQL_DIR"
-                            fi
-                        else
+                        
+                        # Подтверждение выбранного пути с информацией
+                        local confirm_msg="Выбранная папка:\n\n"
+                        confirm_msg+="Путь: $new_sql_dir\n"
+                        confirm_msg+="Абсолютный путь: $abs_path\n"
+                        confirm_msg+="Найдено SQL файлов: $sql_count\n\n"
+                        confirm_msg+="Подтвердить выбор?"
+                        
+                        if dialog_yesno "Подтверждение выбора папки" "$confirm_msg"; then
                             SQL_DIR="$new_sql_dir"
-                            dialog_msgbox "Информация" "Папка установлена:\n$SQL_DIR\n\nНайдено SQL файлов: $sql_count"
+                            if [ $sql_count -gt 0 ]; then
+                                dialog_msgbox "Успешно" "Папка установлена:\n$SQL_DIR\n\nНайдено SQL файлов: $sql_count"
+                            else
+                                dialog_msgbox "Успешно" "Папка установлена:\n$SQL_DIR\n\n(SQL файлы не найдены в этой папке)"
+                            fi
                         fi
                     fi
                 fi
@@ -221,34 +347,57 @@ show_paths_selection() {
                     if [ ! -d "$abs_path" ]; then
                         dialog_msgbox "Ошибка" "Папка не существует:\n$abs_path"
                     else
-                        BOOKS_DIR="$new_books_dir"
                         local books_count=$(find "$abs_path" -maxdepth 1 -type f -name "*.zip" 2>/dev/null | wc -l)
-                        if [ $books_count -gt 0 ]; then
-                            dialog_msgbox "Информация" "Папка установлена:\n$BOOKS_DIR\n\nНайдено архивов книг: $books_count"
-                        else
-                            dialog_msgbox "Информация" "Папка установлена:\n$BOOKS_DIR\n\n(Архивы книг не найдены)"
+                        
+                        # Подтверждение выбранного пути с информацией
+                        local confirm_msg="Выбранная папка:\n\n"
+                        confirm_msg+="Путь: $new_books_dir\n"
+                        confirm_msg+="Абсолютный путь: $abs_path\n"
+                        confirm_msg+="Найдено архивов книг: $books_count\n\n"
+                        confirm_msg+="Подтвердить выбор?"
+                        
+                        if dialog_yesno "Подтверждение выбора папки" "$confirm_msg"; then
+                            BOOKS_DIR="$new_books_dir"
+                            if [ $books_count -gt 0 ]; then
+                                dialog_msgbox "Успешно" "Папка установлена:\n$BOOKS_DIR\n\nНайдено архивов книг: $books_count"
+                            else
+                                dialog_msgbox "Успешно" "Папка установлена:\n$BOOKS_DIR\n\n(Архивы книг не найдены в этой папке)"
+                            fi
                         fi
                     fi
                 fi
                 ;;
             3)
-                local info_msg="Текущие пути:\n\n"
-                info_msg+="SQL файлы: $SQL_DIR\n"
+                local info_msg="Текущие пути к данным:\n\n"
+                
+                # Информация о SQL папке
+                info_msg+="📁 SQL файлы:\n"
+                info_msg+="  Относительный путь: $SQL_DIR\n"
                 local sql_abs=$(get_absolute_path "$SQL_DIR")
+                info_msg+="  Абсолютный путь: $sql_abs\n"
                 if [ -d "$sql_abs" ]; then
                     local sql_count=$(find "$sql_abs" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
+                    info_msg+="  ✓ Папка существует\n"
                     info_msg+="  Найдено файлов: $sql_count\n"
                 else
                     info_msg+="  ⚠ Папка не существует\n"
                 fi
-                info_msg+="\nАрхивы книг: $BOOKS_DIR\n"
+                
+                info_msg+="\n📁 Архивы книг:\n"
+                info_msg+="  Относительный путь: $BOOKS_DIR\n"
                 local books_abs=$(get_absolute_path "$BOOKS_DIR")
+                info_msg+="  Абсолютный путь: $books_abs\n"
                 if [ -d "$books_abs" ]; then
                     local books_count=$(find "$books_abs" -maxdepth 1 -type f -name "*.zip" 2>/dev/null | wc -l)
+                    info_msg+="  ✓ Папка существует\n"
                     info_msg+="  Найдено архивов: $books_count\n"
                 else
                     info_msg+="  ⚠ Папка не существует\n"
                 fi
+                
+                info_msg+="\n📂 Корень проекта:\n"
+                info_msg+="  $(get_project_root)\n"
+                
                 dialog_msgbox "Проверка путей" "$info_msg"
                 ;;
             0)
@@ -351,8 +500,22 @@ start_installation() {
         return
     fi
     
-    # Подтверждение
-    if ! dialog_yesno "Подтверждение" "Начать установку с выбранными параметрами?"; then
+    # Подтверждение с отображением параметров и полных путей
+    local sql_abs=$(get_absolute_path "$SQL_DIR")
+    local books_abs=$(get_absolute_path "$BOOKS_DIR")
+    
+    local confirm_msg="Начать установку с параметрами:\n\n"
+    confirm_msg+="🌐 Порт веб-сервера: $WEB_PORT\n"
+    confirm_msg+="🗄️  Порт базы данных: $DB_PORT\n"
+    confirm_msg+="\n📁 Папка SQL файлов:\n"
+    confirm_msg+="  Относительный: $SQL_DIR\n"
+    confirm_msg+="  Абсолютный: $sql_abs\n"
+    confirm_msg+="\n📁 Папка архивов книг:\n"
+    confirm_msg+="  Относительный: $BOOKS_DIR\n"
+    confirm_msg+="  Абсолютный: $books_abs\n"
+    confirm_msg+="\n⚙️  Автоинициализация БД: $([ $AUTO_INIT -eq 1 ] && echo "Да" || echo "Нет")\n"
+    
+    if ! dialog_yesno "Подтверждение установки" "$confirm_msg"; then
         return
     fi
     
