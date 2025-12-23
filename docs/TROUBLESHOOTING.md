@@ -371,11 +371,11 @@ docker-compose exec -T php-fpm ls -la /application/tools/
 1. **Скрипты не имеют прав на выполнение (наиболее частая причина):**
 ```bash
 # Установка прав на выполнение для всех скриптов
-docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg"
+docker-compose exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py"
 
 # Проверка прав
 docker-compose exec -T php-fpm ls -la /application/tools/
-# Все .sh файлы и app_topg должны иметь права -rwxr-xr-x
+# Все .sh файлы, app_topg и .py файлы должны иметь права -rwxr-xr-x
 ```
 
 2. **Опечатка в shebang файла app_topg:**

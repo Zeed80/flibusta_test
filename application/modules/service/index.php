@@ -362,7 +362,7 @@ if (!empty($script_errors)) {
 		echo "• " . htmlspecialchars($error) . "<br>";
 	}
 	echo "<br><small>Убедитесь, что все скрипты в /application/tools/ имеют права на выполнение.<br>";
-	echo "Выполните: <code>chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py</code></small>";
+	echo "Выполните: <code>docker-compose exec php-fpm sh -c \"cd /application/tools && chmod +x *.sh app_topg *.py\"</code></small>";
 	echo "</div>";
 }
 

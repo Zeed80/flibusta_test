@@ -283,7 +283,7 @@ start_containers() {
     
     # Установка прав на выполнение для скриптов в tools/
     log "${BLUE}Установка прав на выполнение для скриптов...${NC}"
-    $compose_cmd exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py" 2>/dev/null || true
+    $compose_cmd exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py" 2>/dev/null || true
     log "${GREEN}✓ Права на выполнение установлены${NC}"
     
     # Ожидание готовности

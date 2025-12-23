@@ -574,7 +574,7 @@ flibusta_webserver_1     flibusta_test-webserver   Up X seconds
 
 ```bash
 # Установка прав на выполнение для всех скриптов в tools/
-docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py"
+docker-compose exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py"
 
 # Проверка прав
 docker-compose exec -T php-fpm ls -la /application/tools/
@@ -640,7 +640,7 @@ curl -I http://localhost:27100
 1. Откройте http://localhost:27100/service/
 2. Если видите красное предупреждение о проблемах со скриптами, выполните:
    ```bash
-   docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg"
+   docker-compose exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py"
    ```
 3. Нажмите кнопку **"Обновить базу"**
 4. Дождитесь завершения импорта (может занять 10-60 минут)
@@ -1340,7 +1340,7 @@ docker-compose exec php-fpm rm -rf /application/cache/authors/* /application/cac
 
 ```bash
 # Установка прав на выполнение для всех скриптов
-docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py"
+docker-compose exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py"
 
 # Проверка прав
 docker-compose exec php-fpm ls -la /application/tools/
