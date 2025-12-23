@@ -6,7 +6,8 @@ ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/do
 
 WORKDIR "/application"
 
-RUN apk --update add postgresql-client;\
-    apk add python3;\
-    apk add coreutils;\
-RUN chmod +x /usr/local/bin/install-php-extensions; install-php-extensions gd bz2 pdo_pgsql zip
+RUN apk --update add postgresql-client \
+    && apk add python3 \
+    && apk add coreutils \
+    && chmod +x /usr/local/bin/install-php-extensions \
+    && install-php-extensions gd bz2 pdo_pgsql zip
