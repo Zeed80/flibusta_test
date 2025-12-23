@@ -144,7 +144,7 @@ wget http://flibusta.is/sql/f.n.fb2-000001-999999.zip -P Flibusta.Net/
 ./getsql.sh
 
 # Импорт SQL файлов
-docker-compose exec php-fpm bash /application/tools/app_import_sql.sh
+docker-compose exec php-fpm sh /application/tools/app_import_sql.sh
 ```
 
 ### Как часто нужно обновлять базу данных?
@@ -508,7 +508,7 @@ docker-compose logs -f
 0 2 * * * cd /path/to/flibusta && ./update_daily.sh >> /var/log/flibusta_update.log 2>&1
 
 # Еженедельное обновление SQL файлов в воскресенье в 3:00 ночи
-0 3 * * 0 cd /path/to/flibusta && ./getsql.sh && docker-compose exec php-fpm bash /application/tools/app_import_sql.sh >> /var/log/flibusta_update.log 2>&1
+0 3 * * 0 cd /path/to/flibusta && ./getsql.sh && docker-compose exec php-fpm sh /application/tools/app_import_sql.sh >> /var/log/flibusta_update.log 2>&1
 ```
 
 ### Как настроить логирование?

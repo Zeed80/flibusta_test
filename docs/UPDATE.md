@@ -112,10 +112,10 @@ docker-compose up -d
 ./getcovers.sh
 
 # Импорт SQL файлов
-docker-compose exec php-fpm bash /application/tools/app_import_sql.sh
+docker-compose exec php-fpm sh /application/tools/app_import_sql.sh
 
 # Сканирование ZIP-архивов
-docker-compose exec php-fpm bash /application/tools/app_reindex.sh
+docker-compose exec php-fpm sh /application/tools/app_reindex.sh
 ```
 
 ## Обновление архивов книг

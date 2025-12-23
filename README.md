@@ -650,11 +650,13 @@ curl -I http://localhost:27100
 
 ```bash
 # Импорт SQL файлов
-docker-compose exec php-fpm bash /application/tools/app_import_sql.sh
+docker-compose exec php-fpm sh /application/tools/app_import_sql.sh
 
 # Мониторинг процесса импорта
 docker-compose logs -f php-fpm
 ```
+
+> ⚠️ **Важно:** Контейнер php-fpm использует Alpine Linux, поэтому используйте `sh` вместо `bash`. Команда `docker-compose exec` автоматически определит правильный shell на основе shebang в скрипте.
 
 **Вариант C: Инициализация с помощью скрипта**
 
@@ -783,7 +785,7 @@ crontab -e
 0 2 * * * cd /путь/к/flibusta_test && ./update_daily.sh >> /var/log/flibusta_update.log 2>&1
 
 # Добавление задачи для еженедельного обновления SQL файлов в воскресенье в 3:00 ночи
-0 3 * * 0 cd /путь/к/flibusta_test && ./getsql.sh && docker-compose exec php-fpm bash /application/tools/app_import_sql.sh >> /var/log/flibusta_update.log 2>&1
+0 3 * * 0 cd /путь/к/flibusta_test && ./getsql.sh && docker-compose exec php-fpm sh /application/tools/app_import_sql.sh >> /var/log/flibusta_update.log 2>&1
 ```
 
 ##### Шаг 14: Настройка резервного копирования

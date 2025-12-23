@@ -231,7 +231,7 @@ docker-compose up -d
 ### 7. Инициализация БД
 
 ```bash
-docker-compose exec php-fpm bash /application/scripts/init_database.sh
+docker-compose exec php-fpm sh /application/scripts/init_database.sh
 ```
 
 ## Проверка установки
@@ -361,7 +361,7 @@ docker-compose logs postgres
 docker-compose logs php-fpm
 
 # Ручной запуск инициализации
-docker-compose exec php-fpm bash /application/scripts/init_database.sh
+docker-compose exec php-fpm sh /application/scripts/init_database.sh
 ```
 
 ### Проблемы с TUI
@@ -383,7 +383,7 @@ sudo apt-get install dialog
 
 1. Разместите новые SQL файлы в `FlibustaSQL/`
 2. Разместите новые архивы в `Flibusta.Net/`
-3. Запустите инициализацию: `docker-compose exec php-fpm bash /application/scripts/init_database.sh`
+3. Запустите инициализацию: `docker-compose exec php-fpm sh /application/scripts/init_database.sh`
 
 ### Как удалить установку?
 

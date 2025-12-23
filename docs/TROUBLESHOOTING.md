@@ -323,7 +323,7 @@ grep FLIBUSTA_DBPASSWORD .env
 3. **База данных не инициализирована:**
 ```bash
 # Инициализируйте базу данных
-docker-compose exec php-fpm bash /application/tools/app_import_sql.sh
+docker-compose exec php-fpm sh /application/tools/app_import_sql.sh
 ```
 
 ### Проблема: База данных пуста
@@ -345,7 +345,7 @@ ls -la FlibustaSQL/
 
 2. Импортируйте SQL файлы:
 ```bash
-docker-compose exec php-fpm bash /application/tools/app_import_sql.sh
+docker-compose exec php-fpm sh /application/tools/app_import_sql.sh
 ```
 
 3. Или через веб-интерфейс:

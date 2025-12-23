@@ -167,12 +167,13 @@ function run_background_import($script_path) {
 	$log_file = FLIBUSTA_SQL_STATUS;
 	
 	// Загружаем переменные окружения из dbinit.sh перед запуском
-	$command = "cd /application && . /application/tools/dbinit.sh && sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1 &";
+	// Примечание: контейнер уже находится в рабочей директории, поэтому cd не нужен
+	$command = ". /application/tools/dbinit.sh && sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1 &";
 	
 	// Запускаем через shell_exec в фоне (более надежно чем proc_open для фоновых задач)
 	$output = array();
 	$return_var = 0;
-	exec($command . " echo $!", $output, $return_var);
+	exec($command, $output, $return_var);
 	
 	// Даем скрипту время создать файл статуса
 	usleep(500000); // 0.5 секунды
@@ -275,7 +276,7 @@ if (!empty($script_errors)) {
 		echo "• " . htmlspecialchars($error) . "<br>";
 	}
 	echo "<br><small>Убедитесь, что все скрипты в /application/tools/ имеют права на выполнение.<br>";
-	echo "Выполните: <code>chmod +x /application/tools/*.sh /application/tools/app_topg</code></small>";
+	echo "Выполните: <code>chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py</code></small>";
 	echo "</div>";
 }
 
