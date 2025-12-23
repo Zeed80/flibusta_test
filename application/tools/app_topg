@@ -23,5 +23,6 @@ cat /application/sql/$1|grep INSERT|tr -d \`|sed "s/$table/$table/g">>/applicati
 rm /application/cache/tmp/conversion_tmp.sql
 
 echo "Импорт $1">>/application/cache/sql_status
-$SQL_CMD -f /application/sql/psql/$1
+# Перенаправляем stdout в /dev/null, чтобы скрыть вывод INSERT, оставляем только stderr для ошибок
+$SQL_CMD -f /application/sql/psql/$1 >/dev/null 2>>/application/cache/sql_status
 

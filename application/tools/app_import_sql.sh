@@ -77,7 +77,7 @@ echo ""
 
 for sql_file in $SQL_FILES; do
     if [ -f "/application/sql/$sql_file" ]; then
-        safe_execute "Импорт $sql_file" "/application/tools/app_topg $sql_file 2>&1" 0
+        safe_execute "Импорт $sql_file" "/application/tools/app_topg $sql_file" 0
     else
         echo -e "${RED}✗ Файл не найден: $sql_file${NC}" | tee -a /application/cache/sql_status
         FAILED_FILES="$FAILED_FILES$sql_file (файл не найден)\n"
