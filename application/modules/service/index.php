@@ -46,17 +46,68 @@ if (!defined('FLIBUSTA_SCRIPT_UPDATE_ZIP')) {
 	define('FLIBUSTA_SCRIPT_UPDATE_ZIP', FLIBUSTA_TOOLS_DIR . '/app_update_zip_list.php');
 }
 
-// Безопасная проверка статуса импорта (проверяем файл статуса вместо shell_exec)
+// Безопасная проверка статуса импорта (проверяем файл статуса и реальный процесс)
 $status_import = false;
+$status_file_stale = false; // Флаг "зависшего" процесса
+
 if (file_exists(FLIBUSTA_SQL_STATUS)) {
 	$status_content = trim(file_get_contents(FLIBUSTA_SQL_STATUS));
-	// Импорт активен, если файл не пустой и не содержит только ошибку без "importing" или "Создание индекса"
-	if (!empty($status_content) && 
-	    (stripos($status_content, "importing") !== false || 
-	     stripos($status_content, "Создание индекса") !== false ||
-	     stripos($status_content, "Конвертация") !== false ||
-	     stripos($status_content, "Импорт") !== false)) {
-		$status_import = true;
+	$status_file_mtime = filemtime(FLIBUSTA_SQL_STATUS);
+	$current_time = time();
+	$time_since_update = $current_time - $status_file_mtime;
+	
+	// Проверяем, не "завис" ли процесс (файл не обновлялся более 5 минут)
+	if ($time_since_update > 300) { // 5 минут
+		$status_file_stale = true;
+	}
+	
+	// Проверяем наличие ключевых слов, указывающих на завершение процесса
+	$completion_keywords = [
+		"=== Импорт завершен успешно ===",
+		"=== Импорт завершен с ошибками ===",
+		"=== Реиндексация завершена успешно ===",
+		"=== Реиндексация завершена с ошибками ===",
+		"Все операции выполнены без ошибок",
+		"Итоговый отчет"
+	];
+	
+	$is_completed = false;
+	foreach ($completion_keywords as $keyword) {
+		if (stripos($status_content, $keyword) !== false) {
+			$is_completed = true;
+			break;
+		}
+	}
+	
+	// Проверяем наличие активных процессов импорта
+	$process_running = false;
+	if (function_exists('shell_exec')) {
+		$process_check = @shell_exec("ps aux | grep -E '(app_import_sql|app_reindex|app_topg|app_db_converter)' | grep -v grep");
+		$process_running = !empty(trim($process_check));
+	}
+	
+	// Импорт активен только если:
+	// 1. Процесс НЕ завершен
+	// 2. И файл содержит ключевые слова активного процесса
+	// 3. И (процесс реально запущен ИЛИ файл недавно обновлялся (менее 5 минут))
+	if (!$is_completed && !empty($status_content)) {
+		$has_active_keywords = (
+			stripos($status_content, "importing") !== false || 
+			stripos($status_content, "Создание индекса") !== false ||
+			(stripos($status_content, "Конвертация") !== false && $time_since_update < 60) ||
+			(stripos($status_content, "Импорт") !== false && $time_since_update < 60)
+		);
+		
+		if ($has_active_keywords && ($process_running || $time_since_update < 300)) {
+			$status_import = true;
+		}
+	}
+	
+	// Если процесс завершен, но файл статуса не очищен - считаем процесс неактивным
+	// и помечаем файл как "зависший" для показа предупреждения
+	if ($is_completed && !$process_running) {
+		$status_import = false;
+		$status_file_stale = true;
 	}
 }
 
@@ -341,6 +392,16 @@ function run_background_import($script_path) {
 	return false;
 }
 
+// Обработка принудительной очистки статуса (если процесс завис)
+if (isset($_GET['clear_status'])) {
+	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+		@unlink(FLIBUSTA_SQL_STATUS);
+		error_log("Файл статуса принудительно очищен пользователем");
+	}
+	header("location:$webroot/service/?status_cleared=1");
+	exit;
+}
+
 if (!$status_import) {
 	if (isset($_GET['import'])) {
 		// Проверка доступности необходимых функций
@@ -445,6 +506,14 @@ if ($status_import) {
 	$status = 'disabled';
 } else {
 	$status = '';
+}
+
+// Отображение успешной очистки статуса
+if (isset($_GET['status_cleared'])) {
+	echo "<div class='alert alert-success' role='alert'>";
+	echo "<strong>✓ Статус импорта успешно очищен</strong><br>";
+	echo "<small>Теперь можно запустить новый процесс импорта.</small>";
+	echo "</div>";
 }
 
 // Отображение ошибок запуска скриптов
@@ -601,21 +670,41 @@ if ($status_import) {
 	}
 	
 	echo "<div class='m-3'>";
+	
+	// Предупреждение о зависшем процессе
+	if ($status_file_stale) {
+		echo "<div class='alert alert-warning mb-3' role='alert'>";
+		echo "<strong>⚠️ Внимание: Процесс может быть завершен</strong><br>";
+		echo "<small>Файл статуса не обновлялся более 5 минут. Процесс мог завершиться, но статус не был очищен.</small><br>";
+		echo "<a href='?clear_status=1' class='btn btn-sm btn-outline-danger mt-2' onclick=\"return confirm('Вы уверены, что хотите очистить статус? Это разблокирует кнопки, но не остановит процесс, если он все еще выполняется.');\">Очистить статус и разблокировать кнопки</a>";
+		echo "</div>";
+	}
+	
 	echo "<div class='d-flex align-items-center mb-2'>";
 	echo "<strong>Статус импорта:</strong>";
-	echo "<div class='spinner-border spinner-border-sm ms-2' role='status' aria-hidden='true'></div>";
+	if (!$status_file_stale) {
+		echo "<div class='spinner-border spinner-border-sm ms-2' role='status' aria-hidden='true'></div>";
+	}
 	echo "</div>";
 	echo "<div style='max-height: 400px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.25rem; padding: 1rem; font-family: monospace; font-size: 0.875rem;'>";
 	echo nl2br(htmlspecialchars($op));
 	echo "</div>";
 	echo "<div class='mt-2'>";
-	echo "<small class='text-muted'>Страница обновляется автоматически каждые 10 секунд</small>";
+	if (!$status_file_stale) {
+		echo "<small class='text-muted'>Страница обновляется автоматически каждые 10 секунд</small>";
+	} else {
+		echo "<small class='text-warning'>⚠️ Автообновление отключено (процесс может быть завершен)</small>";
+	}
 	if (file_exists(FLIBUSTA_SQL_STATUS) && $total_lines > $show_lines) {
 		echo " | <small><a href='?view_full_log=1' target='_blank'>Показать полный лог</a></small>";
 	}
 	echo "</div>";
 	echo "</div>";
-	header("Refresh:10");
+	
+	// Автообновление только если процесс не завис
+	if (!$status_file_stale) {
+		header("Refresh:10");
+	}
 }
 
 ?>

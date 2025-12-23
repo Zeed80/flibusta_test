@@ -95,9 +95,6 @@ safe_execute "Обновление индексов" "$SQL_CMD -f /application/t
 # Создание индекса zip-файлов
 safe_execute "Создание индекса zip-файлов" "php /application/tools/app_update_zip_list.php 2>&1" 0
 
-# Очистка файла статуса
-echo "" > /application/cache/sql_status
-
 # Итоговый отчет
 echo ""
 echo -e "${GREEN}=== Итоговый отчет ===${NC}"
@@ -109,9 +106,13 @@ if [ $ERROR_COUNT -gt 0 ]; then
     echo -e "$FAILED_FILES"
     echo ""
     echo -e "${YELLOW}⚠ ВНИМАНИЕ: Обнаружены ошибки при импорте. Проверьте логи.${NC}"
+    echo "" >> /application/cache/sql_status
+    echo "=== Импорт завершен с ошибками ===" >> /application/cache/sql_status
     exit 1
 else
     echo -e "${GREEN}✓ Все операции выполнены без ошибок${NC}"
+    echo "" >> /application/cache/sql_status
+    echo "=== Импорт завершен успешно ===" >> /application/cache/sql_status
     exit 0
 fi
 
