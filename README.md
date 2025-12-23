@@ -682,10 +682,12 @@ docker-compose exec postgres psql -U flibusta -d flibusta \
 
 ```bash
 # Сканирование ZIP-архивов книг
-docker-compose exec php-fpm php /application/tools/app_reindex.sh
+docker-compose exec php-fpm sh /application/tools/app_reindex.sh
 
 # Или через веб-интерфейс: Сервис → Сканирование ZIP
 ```
+
+> ⚠️ **Важно:** Скрипт `app_reindex.sh` - это shell скрипт, поэтому запускайте его через `sh`, а не через `php`. Внутри скрипта уже правильно вызывается PHP скрипт `app_update_zip_list.php`.
 
 **Проверка статуса через веб-интерфейс:**
 
@@ -1380,6 +1382,13 @@ docker-compose exec php-fpm ps aux | grep -E 'app_import|app_reindex|app_topg'
 docker-compose exec php-fpm ls -la /application/sql/
 docker-compose exec php-fpm ls -la /application/cache/
 docker-compose exec php-fpm ls -la /application/cache/tmp/
+
+# Если видите ошибку "Permission denied" при создании файла sql_status:
+# Исправьте права на директорию cache
+docker-compose exec php-fpm sh -c "chmod 777 /application/cache && chmod 777 /application/cache/* 2>/dev/null || true"
+
+# Или на хосте (если директория смонтирована):
+chmod -R 777 cache/
 ```
 
 **Предупреждение на странице сервиса:**

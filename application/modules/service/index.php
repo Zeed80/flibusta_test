@@ -214,10 +214,21 @@ function run_background_import($script_path) {
 		}
 	}
 	
-	// Убеждаемся, что директория для файла статуса существует
+	// Убеждаемся, что директория для файла статуса существует и имеет права на запись
 	$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
 	if (!is_dir($sql_dir)) {
-		@mkdir($sql_dir, 0755, true);
+		@mkdir($sql_dir, 0777, true);
+	}
+	// Устанавливаем права на запись для директории (если они недостаточны)
+	if (is_dir($sql_dir) && !is_writable($sql_dir)) {
+		@chmod($sql_dir, 0777);
+	}
+	
+	// Проверяем, что можем создать файл статуса
+	if (!is_writable($sql_dir)) {
+		$error_msg = "Ошибка: Нет прав на запись в директорию: $sql_dir";
+		error_log($error_msg);
+		return false;
 	}
 	
 	// Запуск скрипта в фоновом режиме
@@ -273,6 +284,7 @@ if (!$status_import) {
 		$dirs_to_create = [
 			FLIBUSTA_SQL_DIR . '/psql',
 			FLIBUSTA_SQL_DIR,
+			FLIBUSTA_CACHE_DIR,
 			FLIBUSTA_CACHE_DIR . '/authors',
 			FLIBUSTA_CACHE_DIR . '/covers',
 			FLIBUSTA_CACHE_DIR . '/tmp'
@@ -280,7 +292,11 @@ if (!$status_import) {
 		
 		foreach ($dirs_to_create as $dir) {
 			if (!is_dir($dir)) {
-				@mkdir($dir, 0755, true);
+				@mkdir($dir, 0777, true);
+			}
+			// Устанавливаем права на запись для директории (если они недостаточны)
+			if (is_dir($dir) && !is_writable($dir)) {
+				@chmod($dir, 0777);
 			}
 		}
 		
@@ -294,7 +310,11 @@ if (!$status_import) {
 		// Создаём директорию для файла статуса, если нужно
 		$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
 		if (!is_dir($sql_dir)) {
-			@mkdir($sql_dir, 0755, true);
+			@mkdir($sql_dir, 0777, true);
+		}
+		// Устанавливаем права на запись для директории (если они недостаточны)
+		if (is_dir($sql_dir) && !is_writable($sql_dir)) {
+			@chmod($sql_dir, 0777);
 		}
 		
 		// Безопасный запуск реиндексации

@@ -5,7 +5,13 @@ if (!defined('FLIBUSTA_BOOKS_DIR')) {
 }
 
 error_reporting(E_ALL);
-include('../dbinit.php');
+// Используем абсолютный путь для надежности
+$dbinit_path = '/application/dbinit.php';
+if (!file_exists($dbinit_path)) {
+	error_log("Ошибка: Файл dbinit.php не найден: $dbinit_path");
+	exit(1);
+}
+include($dbinit_path);
 
 // Открываем директорию с константой
 if ($handle = opendir(FLIBUSTA_BOOKS_DIR)) {

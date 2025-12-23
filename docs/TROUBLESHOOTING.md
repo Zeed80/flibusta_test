@@ -424,11 +424,25 @@ docker-compose exec php-fpm ps aux | grep -E 'app_import|app_reindex|app_topg'
 # Создайте директории, если их нет
 docker-compose exec php-fpm sh -c "mkdir -p /application/sql/psql /application/cache/tmp"
 
-# Установите права
+# Установите права на директорию cache (критически важно!)
+docker-compose exec php-fpm sh -c "chmod 777 /application/cache && chmod 777 /application/cache/* 2>/dev/null || true"
+
+# Установите права на другие директории
 docker-compose exec php-fpm sh -c "chmod 777 /application/cache/tmp /application/sql/psql 2>/dev/null || true"
 ```
 
-**Примечание:** Директория `/application/cache/tmp` используется для временных файлов при конвертации SQL. Без прав на запись импорт не выполнится.
+**Примечание:** 
+- Директория `/application/cache/` используется для файла статуса импорта (`sql_status`). Без прав на запись скрипты не смогут создать файл статуса.
+- Директория `/application/cache/tmp` используется для временных файлов при конвертации SQL. Без прав на запись импорт не выполнится.
+
+**Если видите ошибку "Permission denied" при создании файла sql_status:**
+```bash
+# Исправьте права на директорию cache
+docker-compose exec php-fpm sh -c "chmod 777 /application/cache && chmod 777 /application/cache/* 2>/dev/null || true"
+
+# Или на хосте (если директория смонтирована):
+chmod -R 777 cache/
+```
 
 **Предупреждение на странице сервиса:**
 Если на странице отображается красное предупреждение с текстом вроде:
