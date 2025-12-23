@@ -29,7 +29,7 @@ safe_execute() {
         return 0
     else
         exit_code=$?
-        echo -e "${RED}✗ Ошибка при $description (код: $exit_code)${NC}" | tee -a /application/sql/status
+        echo -e "${RED}✗ Ошибка при $description (код: $exit_code)${NC}" | tee -a /application/cache/sql_status
         
         if [ "$critical" -eq 1 ]; then
             FAILED_FILES="$FAILED_FILES$description (КРИТИЧЕСКАЯ ОШИБКА)\n"
@@ -49,9 +49,9 @@ mkdir -p /application/cache/covers
 mkdir -p /application/cache/tmp
 
 # Создаем файл статуса импорта для PHP проверки
-# Убеждаемся, что директория существует
-mkdir -p /application/sql
-echo "importing" > /application/sql/status
+# Используем cache директорию, так как там есть права на запись
+mkdir -p /application/cache
+echo "importing" > /application/cache/sql_status
 
 # Распаковка sql.gz файлов
 safe_execute "Распаковка SQL.gz файлов" "gzip -f -d /application/sql/*.gz 2>/dev/null" 0
@@ -65,7 +65,7 @@ for sql_file in $SQL_FILES; do
     if [ -f "/application/sql/$sql_file" ]; then
         safe_execute "Импорт $sql_file" "/application/tools/app_topg $sql_file 2>&1" 0
     else
-        echo -e "${RED}✗ Файл не найден: $sql_file${NC}" | tee -a /application/sql/status
+        echo -e "${RED}✗ Файл не найден: $sql_file${NC}" | tee -a /application/cache/sql_status
         FAILED_FILES="$FAILED_FILES$sql_file (файл не найден)\n"
         ERROR_COUNT=$((ERROR_COUNT + 1))
     fi
@@ -82,7 +82,7 @@ safe_execute "Обновление индексов" "$SQL_CMD -f /application/t
 safe_execute "Создание индекса zip-файлов" "php /application/tools/app_update_zip_list.php 2>&1" 0
 
 # Очистка файла статуса
-echo "" > /application/sql/status
+echo "" > /application/cache/sql_status
 
 # Итоговый отчет
 echo ""

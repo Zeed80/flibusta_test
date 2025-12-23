@@ -1,7 +1,7 @@
 #!/bin/sh
-echo "Конвертация $1">>/application/sql/status
+echo "Конвертация $1">>/application/cache/sql_status
 if ! grep -q INSERT "/application/sql/$1"; then   
-  echo "Empty table">>/application/sql/status;
+  echo "Empty table">>/application/cache/sql_status;
   exit 1
 fi
 
@@ -17,6 +17,6 @@ cat /application/sql/$1|grep INSERT|tr -d \`|sed "s/$table/$table/g">>/applicati
 /application/tools/app_db_converter.py /application/sql/tmp.sql /application/sql/psql/$1
 rm /application/sql/tmp.sql
 
-echo "Импорт $1">>/application/sql/status
+echo "Импорт $1">>/application/cache/sql_status
 $SQL_CMD -f /application/sql/psql/$1
 

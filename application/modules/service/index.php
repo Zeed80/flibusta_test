@@ -25,7 +25,8 @@ if (!defined('FLIBUSTA_SQL_DIR')) {
 	define('FLIBUSTA_SQL_DIR', '/application/sql');
 }
 if (!defined('FLIBUSTA_SQL_STATUS')) {
-	define('FLIBUSTA_SQL_STATUS', FLIBUSTA_SQL_DIR . '/status');
+	// Используем cache директорию для файла статуса, так как там есть права на запись
+	define('FLIBUSTA_SQL_STATUS', FLIBUSTA_CACHE_DIR . '/sql_status');
 }
 if (!defined('FLIBUSTA_TOOLS_DIR')) {
 	define('FLIBUSTA_TOOLS_DIR', '/application/tools');
