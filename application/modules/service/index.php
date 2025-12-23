@@ -104,15 +104,26 @@ if (!$status_import) {
 
 // Безопасная очистка кэша с использованием PHP функций
 if (isset($_GET['empty'])) {
+	$cleared_dirs = array();
+	$errors = array();
+	
 	// Очистка кэша авторов
 	$authors_cache_dir = FLIBUSTA_CACHE_AUTHORS;
 	if (is_dir($authors_cache_dir)) {
 		$files = glob($authors_cache_dir . '/*');
 		if (is_array($files)) {
+			$count = 0;
 			foreach ($files as $file) {
 				if (is_file($file)) {
-					unlink($file);
+					if (@unlink($file)) {
+						$count++;
+					} else {
+						$errors[] = "Не удалось удалить файл: " . basename($file);
+					}
 				}
+			}
+			if ($count > 0) {
+				$cleared_dirs[] = "Кэш авторов: удалено $count файлов";
 			}
 		}
 	}
@@ -122,15 +133,62 @@ if (isset($_GET['empty'])) {
 	if (is_dir($covers_cache_dir)) {
 		$files = glob($covers_cache_dir . '/*');
 		if (is_array($files)) {
+			$count = 0;
 			foreach ($files as $file) {
 				if (is_file($file)) {
-					unlink($file);
+					if (@unlink($file)) {
+						$count++;
+					} else {
+						$errors[] = "Не удалось удалить файл: " . basename($file);
+					}
 				}
+			}
+			if ($count > 0) {
+				$cleared_dirs[] = "Кэш обложек: удалено $count файлов";
 			}
 		}
 	}
 	
-	header("location:$webroot/service/");
+	// Очистка временных файлов в tmp (но не файла статуса sql_status)
+	$tmp_cache_dir = FLIBUSTA_CACHE_TMP;
+	if (is_dir($tmp_cache_dir)) {
+		$files = glob($tmp_cache_dir . '/*');
+		if (is_array($files)) {
+			$count = 0;
+			foreach ($files as $file) {
+				// Не удаляем файл статуса импорта
+				if (basename($file) !== 'sql_status' && is_file($file)) {
+					if (@unlink($file)) {
+						$count++;
+					} else {
+						$errors[] = "Не удалось удалить временный файл: " . basename($file);
+					}
+				}
+			}
+			if ($count > 0) {
+				$cleared_dirs[] = "Временные файлы: удалено $count файлов";
+			}
+		}
+	}
+	
+	// Формируем сообщение о результате очистки
+	$message = '';
+	if (!empty($cleared_dirs)) {
+		$message = 'success=' . urlencode(implode('; ', $cleared_dirs));
+	}
+	if (!empty($errors)) {
+		if (!empty($message)) {
+			$message .= '&';
+		}
+		$message .= 'error=' . urlencode(implode('; ', $errors));
+	}
+	
+	if (!empty($message)) {
+		header("location:$webroot/service/?cache_cleared&$message");
+	} else {
+		header("location:$webroot/service/");
+	}
+	exit;
 }
 
 // Безопасный запуск импорта SQL с использованием PHP proc_open в фоновом режиме
@@ -182,8 +240,11 @@ function run_background_import($script_path) {
 	if (file_exists(FLIBUSTA_SQL_STATUS)) {
 		$status_content = file_get_contents(FLIBUSTA_SQL_STATUS);
 		// Если файл содержит "importing" или "Создание индекса", значит скрипт запустился
-		if (strpos($status_content, "importing") !== false || 
-		    strpos($status_content, "Создание индекса") !== false ||
+		// Если содержит "Ошибка" - это плохо, не возвращаем true
+		if ((strpos($status_content, "importing") !== false || 
+		     strpos($status_content, "Создание индекса") !== false ||
+		     strpos($status_content, "Конвертация") !== false ||
+		     strpos($status_content, "Импорт") !== false) &&
 		    strpos($status_content, "Ошибка") === false) {
 			return true;
 		}
@@ -250,6 +311,29 @@ if ($status_import) {
 	$status = '';
 }
 
+// Отображение результата очистки кэша
+if (isset($_GET['cache_cleared'])) {
+	if (isset($_GET['success']) && !empty($_GET['success'])) {
+		$success_messages = explode('; ', urldecode($_GET['success']));
+		echo "<div class='alert alert-success' role='alert'>";
+		echo "<strong>✓ Кэш успешно очищен:</strong><br>";
+		foreach ($success_messages as $msg) {
+			echo "• " . htmlspecialchars($msg) . "<br>";
+		}
+		echo "</div>";
+	}
+	
+	if (isset($_GET['error']) && !empty($_GET['error'])) {
+		$error_messages = explode('; ', urldecode($_GET['error']));
+		echo "<div class='alert alert-warning' role='alert'>";
+		echo "<strong>⚠️ Предупреждения при очистке кэша:</strong><br>";
+		foreach ($error_messages as $error) {
+			echo "• " . htmlspecialchars($error) . "<br>";
+		}
+		echo "</div>";
+	}
+}
+
 // Проверка доступности скриптов
 $script_errors = array();
 if (!file_exists(FLIBUSTA_SCRIPT_IMPORT)) {
@@ -260,6 +344,8 @@ if (!file_exists(FLIBUSTA_SCRIPT_IMPORT)) {
 
 if (!file_exists(FLIBUSTA_SCRIPT_REINDEX)) {
 	$script_errors[] = "Скрипт реиндексации не найден: " . FLIBUSTA_SCRIPT_REINDEX;
+} elseif (!is_executable(FLIBUSTA_SCRIPT_REINDEX)) {
+	$script_errors[] = "Скрипт реиндексации не имеет прав на выполнение";
 }
 
 if (!file_exists('/application/tools/app_topg')) {
