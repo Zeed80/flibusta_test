@@ -172,6 +172,7 @@ check_data_files() {
         echo -e "${GREEN}✓${NC} Найдено SQL файлов: $sql_count"
     else
         echo -e "${YELLOW}⚠${NC} Файлы SQL не найдены в FlibustaSQL/"
+        echo -e "   ${YELLOW}ℹ${NC} Не проблема - можно будет скачать автоматически в процессе установки"
         ((WARNINGS++))
     fi
     
@@ -179,6 +180,7 @@ check_data_files() {
         echo -e "${GREEN}✓${NC} Найдено архивов книг: $books_count"
     else
         echo -e "${YELLOW}⚠${NC} Архивы книг не найдены в Flibusta.Net/"
+        echo -e "   ${YELLOW}ℹ${NC} Не проблема - можно будет скачать автоматически в процессе установки"
         ((WARNINGS++))
     fi
 }

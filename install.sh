@@ -50,9 +50,16 @@ check_requirements() {
     log "${BLUE}Проверка требований...${NC}"
     if [ -f "scripts/check_requirements.sh" ]; then
         bash scripts/check_requirements.sh
-        if [ $? -ne 0 ]; then
+        local exit_code=$?
+        
+        # Скрипт возвращает 0 даже при наличии предупреждений
+        # Предупреждения не критичны, установка продолжается
+        if [ $exit_code -ne 0 ]; then
             log "${RED}Проверка требований не пройдена${NC}"
+            log "${RED}Критические ошибки обнаружены. Установка остановлена.${NC}"
             exit 1
+        else
+            log "${GREEN}✓ Проверка требований пройдена (возможны предупреждения)${NC}"
         fi
     else
         log "${YELLOW}Скрипт проверки требований не найден${NC}"
@@ -190,18 +197,38 @@ create_env_file() {
     log "${GREEN}✓ Файл .env создан${NC}"
 }
 
-# Копирование данных
+# Копирование данных или создание символических ссылок
 copy_data() {
     if [ "$SQL_DIR" != "./FlibustaSQL" ] && [ -d "$SQL_DIR" ]; then
-        log "${BLUE}Копирование SQL файлов...${NC}"
-        cp -r "$SQL_DIR"/* FlibustaSQL/ 2>/dev/null || true
-        log "${GREEN}✓ SQL файлы скопированы${NC}"
+        # Проверяем, является ли путь абсолютным
+        if [[ "$SQL_DIR" == /* ]]; then
+            log "${BLUE}Создание символической ссылки на SQL файлы...${NC}"
+            # Удаляем существующую директорию или ссылку
+            rm -rf FlibustaSQL 2>/dev/null || true
+            # Создаем символическую ссылку
+            ln -s "$SQL_DIR" FlibustaSQL
+            log "${GREEN}✓ Символьная ссылка на SQL файлы создана: $SQL_DIR${NC}"
+        else
+            log "${BLUE}Копирование SQL файлов...${NC}"
+            cp -r "$SQL_DIR"/* FlibustaSQL/ 2>/dev/null || true
+            log "${GREEN}✓ SQL файлы скопированы${NC}"
+        fi
     fi
     
     if [ "$BOOKS_DIR" != "./Flibusta.Net" ] && [ -d "$BOOKS_DIR" ]; then
-        log "${BLUE}Копирование архивов книг...${NC}"
-        cp -r "$BOOKS_DIR"/* Flibusta.Net/ 2>/dev/null || true
-        log "${GREEN}✓ Архивы книг скопированы${NC}"
+        # Проверяем, является ли путь абсолютным
+        if [[ "$BOOKS_DIR" == /* ]]; then
+            log "${BLUE}Создание символической ссылки на книги...${NC}"
+            # Удаляем существующую директорию или ссылку
+            rm -rf Flibusta.Net 2>/dev/null || true
+            # Создаем символическую ссылку
+            ln -s "$BOOKS_DIR" Flibusta.Net
+            log "${GREEN}✓ Символьная ссылка на книги создана: $BOOKS_DIR${NC}"
+        else
+            log "${BLUE}Копирование архивов книг...${NC}"
+            cp -r "$BOOKS_DIR"/* Flibusta.Net/ 2>/dev/null || true
+            log "${GREEN}✓ Архивы книг скопированы${NC}"
+        fi
     fi
 }
 
@@ -553,6 +580,7 @@ main() {
     check_requirements
     
     # Создание директорий
+    log "${BLUE}Создание директорий...${NC}"
     init_directories
     
     # Копирование данных
