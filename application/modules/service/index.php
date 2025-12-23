@@ -83,7 +83,7 @@ if (file_exists(FLIBUSTA_SQL_STATUS)) {
 	$process_running = false;
 	if (function_exists('shell_exec')) {
 		$process_check = @shell_exec("ps aux | grep -E '(app_import_sql|app_reindex|app_topg|app_db_converter)' | grep -v grep");
-		$process_running = !empty(trim($process_check));
+		$process_running = !empty($process_check) && trim($process_check) !== '';
 	}
 	
 	// Импорт активен только если:
@@ -274,16 +274,25 @@ function run_background_import($script_path) {
 	$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
 	if (!is_dir($sql_dir)) {
 		@mkdir($sql_dir, 0777, true);
+		@chmod($sql_dir, 0777);
 	}
 	// Устанавливаем права на запись для директории (если они недостаточны)
 	if (is_dir($sql_dir) && !is_writable($sql_dir)) {
 		@chmod($sql_dir, 0777);
+		// Проверяем еще раз после chmod
+		if (!is_writable($sql_dir)) {
+			// Пытаемся установить права рекурсивно для всей директории cache
+			@chmod(FLIBUSTA_CACHE_DIR, 0777);
+			@chmod($sql_dir, 0777);
+		}
 	}
 	
 	// Проверяем, что можем создать файл статуса
 	if (!is_writable($sql_dir)) {
-		$error_msg = "Ошибка: Нет прав на запись в директорию: $sql_dir";
+		$error_msg = "Ошибка: Нет прав на запись в директорию: $sql_dir. Попробуйте выполнить: docker-compose exec php-fpm sh -c \"chmod -R 777 /application/cache\"";
 		error_log($error_msg);
+		// Пытаемся создать файл статуса в другом месте для отображения ошибки
+		@file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
 		return false;
 	}
 	
@@ -303,6 +312,9 @@ function run_background_import($script_path) {
 	// Создаем временный wrapper скрипт для надежного запуска в фоне
 	$wrapper_script = FLIBUSTA_CACHE_TMP . '/run_' . basename($script_path) . '_' . time() . '.sh';
 	$wrapper_content = "#!/bin/sh\n";
+	$wrapper_content .= "# Убеждаемся, что директория cache существует и имеет права на запись\n";
+	$wrapper_content .= "mkdir -p /application/cache\n";
+	$wrapper_content .= "chmod 777 /application/cache 2>/dev/null || true\n";
 	$wrapper_content .= "cd /application\n";
 	$wrapper_content .= ". /application/tools/dbinit.sh\n";
 	$wrapper_content .= "sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1\n";
@@ -475,10 +487,21 @@ if (!$status_import) {
 		$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
 		if (!is_dir($sql_dir)) {
 			@mkdir($sql_dir, 0777, true);
+			@chmod($sql_dir, 0777);
 		}
 		// Устанавливаем права на запись для директории (если они недостаточны)
 		if (is_dir($sql_dir) && !is_writable($sql_dir)) {
+			@chmod(FLIBUSTA_CACHE_DIR, 0777);
 			@chmod($sql_dir, 0777);
+		}
+		
+		// Проверяем, что можем создать файл статуса
+		if (!is_writable($sql_dir)) {
+			$error_msg = "Ошибка: Нет прав на запись в директорию: $sql_dir. Попробуйте выполнить: docker-compose exec php-fpm sh -c \"chmod -R 777 /application/cache\"";
+			error_log($error_msg);
+			@file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+			header("location:$webroot/service/?error=" . urlencode($error_msg));
+			exit;
 		}
 		
 		// Безопасный запуск реиндексации

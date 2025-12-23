@@ -1,4 +1,9 @@
 #!/bin/sh
+# Убеждаемся, что директория cache существует и имеет права на запись
+mkdir -p /application/cache
+chmod 777 /application/cache 2>/dev/null || true
+
+# Создаем файл статуса, если его нет
 echo "Создание индекса zip-файлов">>/application/cache/sql_status
 
 # Переходим в рабочую директорию для надежности
