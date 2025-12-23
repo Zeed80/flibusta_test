@@ -33,7 +33,10 @@ services:
                 condition: service_healthy
 
     php-fpm:
-        build: phpdocker/php-fpm
+        build: 
+            context: ./phpdocker/php-fpm
+            args:
+                PHP_VERSION: ${FLIBUSTA_PHP_VERSION:-8.2}
         working_dir: /application
         volumes:
             - './application:/application'
