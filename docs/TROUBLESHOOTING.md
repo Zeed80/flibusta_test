@@ -388,15 +388,28 @@ docker-compose exec php-fpm head -1 /application/tools/app_topg
 
 3. **Проверьте файл статуса импорта:**
 ```bash
-docker-compose exec php-fpm cat /application/sql/status
+# Файл статуса теперь находится в cache директории
+docker-compose exec php-fpm cat /application/cache/sql_status
+
+# Проверьте права на директорию cache
+docker-compose exec php-fpm ls -la /application/cache/
 ```
 
-4. **Проверьте логи PHP-FPM:**
+4. **Проверьте права на директории:**
 ```bash
+# Проверьте права на запись в директории
+docker-compose exec php-fpm ls -la /application/sql/
+docker-compose exec php-fpm ls -la /application/cache/
+docker-compose exec php-fpm ls -la /application/cache/tmp/
+```
+
+5. **Проверьте логи PHP-FPM:**
+```bash
+# Просмотр последних ошибок
 docker-compose logs php-fpm --tail=100
 ```
 
-5. **Если кнопка серая и неактивная:**
+6. **Если кнопка серая и неактивная:**
 Это значит, что уже запущен процесс импорта. Дождитесь его завершения или выполните:
 ```bash
 # Проверьте, не запущен ли процесс импорта
@@ -405,6 +418,17 @@ docker-compose exec php-fpm ps aux | grep -E 'app_import|app_reindex|app_topg'
 
 6. **Проверьте доступность скриптов в веб-интерфейсе:**
 Откройте http://localhost:27100/service/ и проверьте наличие красного предупреждения. Если оно есть, выполните команду из п.1.
+
+7. **Убедитесь, что права на запись есть во всех необходимых директориях:**
+```bash
+# Создайте директории, если их нет
+docker-compose exec php-fpm sh -c "mkdir -p /application/sql/psql /application/cache/tmp"
+
+# Установите права
+docker-compose exec php-fpm sh -c "chmod 777 /application/cache/tmp /application/sql/psql 2>/dev/null || true"
+```
+
+**Примечание:** Директория `/application/cache/tmp` используется для временных файлов при конвертации SQL. Без прав на запись импорт не выполнится.
 
 **Предупреждение на странице сервиса:**
 Если на странице отображается красное предупреждение с текстом вроде:

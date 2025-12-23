@@ -165,7 +165,9 @@ function run_background_import($script_path) {
 	// Запуск скрипта в фоновом режиме
 	// Используем shell для запуска в фоне с перенаправлением вывода
 	$log_file = FLIBUSTA_SQL_STATUS;
-	$command = "sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1 &";
+	
+	// Загружаем переменные окружения из dbinit.sh перед запуском
+	$command = "cd /application && . /application/tools/dbinit.sh && sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1 &";
 	
 	// Запускаем через shell_exec в фоне (более надежно чем proc_open для фоновых задач)
 	$output = array();
@@ -205,6 +207,21 @@ function run_background_import($script_path) {
 
 if (!$status_import) {
 	if (isset($_GET['import'])) {
+		// Создаём необходимые директории перед запуском импорта
+		$dirs_to_create = [
+			FLIBUSTA_SQL_DIR . '/psql',
+			FLIBUSTA_SQL_DIR,
+			FLIBUSTA_CACHE_DIR . '/authors',
+			FLIBUSTA_CACHE_DIR . '/covers',
+			FLIBUSTA_CACHE_DIR . '/tmp'
+		];
+		
+		foreach ($dirs_to_create as $dir) {
+			if (!is_dir($dir)) {
+				@mkdir($dir, 0755, true);
+			}
+		}
+		
 		// Безопасный запуск импорта SQL
 		if (function_exists('run_background_import') && run_background_import(FLIBUSTA_SCRIPT_IMPORT)) {
 			$status_fetch = true;
@@ -212,6 +229,12 @@ if (!$status_import) {
 		header("location:$webroot/service/");
 	}
 	if (isset($_GET['reindex'])) {
+		// Создаём директорию для файла статуса, если нужно
+		$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
+		if (!is_dir($sql_dir)) {
+			@mkdir($sql_dir, 0755, true);
+		}
+		
 		// Безопасный запуск реиндексации
 		if (function_exists('run_background_import') && run_background_import(FLIBUSTA_SCRIPT_REINDEX)) {
 			$status_fetch = true;

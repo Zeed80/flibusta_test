@@ -1,21 +1,24 @@
 #!/bin/sh
 echo "Конвертация $1">>/application/cache/sql_status
-if ! grep -q INSERT "/application/sql/$1"; then   
+if ! grep -q INSERT "/application/sql/$1"; then
   echo "Empty table">>/application/cache/sql_status;
   exit 1
 fi
 
-
+# Убеждаемся, что директории существуют
+mkdir -p /application/sql/psql
+mkdir -p /application/cache/tmp
 
 xtable="cat /application/sql/$1|grep 'CREATE TABLE'|awk '{print \$3}'| sed 's/^.//;s/.$//'"
 table=$(eval "$xtable")
 
 echo $1
-echo "TRUNCATE $table;">/application/sql/tmp.sql
+# Используем cache/tmp для временного файла (там гарантированы права на запись)
+echo "TRUNCATE $table;">/application/cache/tmp/conversion_tmp.sql
 echo $table
-cat /application/sql/$1|grep INSERT|tr -d \`|sed "s/$table/$table/g">>/application/sql/tmp.sql
-/application/tools/app_db_converter.py /application/sql/tmp.sql /application/sql/psql/$1
-rm /application/sql/tmp.sql
+cat /application/sql/$1|grep INSERT|tr -d \`|sed "s/$table/$table/g">>/application/cache/tmp/conversion_tmp.sql
+/application/tools/app_db_converter.py /application/cache/tmp/conversion_tmp.sql /application/sql/psql/$1
+rm /application/cache/tmp/conversion_tmp.sql
 
 echo "Импорт $1">>/application/cache/sql_status
 $SQL_CMD -f /application/sql/psql/$1

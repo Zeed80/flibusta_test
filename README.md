@@ -574,14 +574,16 @@ flibusta_webserver_1     flibusta_test-webserver   Up X seconds
 
 ```bash
 # Установка прав на выполнение для всех скриптов в tools/
-docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg"
+docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py"
 
 # Проверка прав
 docker-compose exec -T php-fpm ls -la /application/tools/
-# Все .sh файлы и app_topg должны иметь права -rwxr-xr-x
+# Все .sh файлы, app_topg и .py файлы должны иметь права -rwxr-xr-x
 ```
 
 **Если скрипты недоступны для выполнения, кнопка "Обновить базу" не будет работать!**
+
+**Примечание:** Скрипт автоматической установки `install.sh` уже выполняет это действие автоматически.
 
 **Если контейнеры не запускаются:**
 
@@ -1330,38 +1332,63 @@ docker-compose exec php-fpm rm -rf /application/cache/authors/* /application/cac
 
 **Проблема:** При нажатии на кнопку "Обновить базу" на странице http://localhost:27100/service/ ничего не происходит или появляется ошибка.
 
-**Причина:** Скрипты в каталоге `/application/tools/` не имеют прав на выполнение, что предотвращает их запуск через PHP.
+**Причины и решения:**
 
-**Решения:**
+1. **Скрипты не имеют прав на выполнение (наиболее частая причина):**
 
-1. **Быстрое решение через Docker:**
 ```bash
-docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg"
-```
+# Установка прав на выполнение для всех скриптов
+docker-compose exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg /application/tools/*.py"
 
-2. **Проверка прав на выполнение:**
-```bash
+# Проверка прав
 docker-compose exec php-fpm ls -la /application/tools/
 ```
-Убедитесь, что все `.sh` файлы и `app_topg` имеют права `-rwxr-xr-x`.
+Убедитесь, что все `.sh` файлы, `app_topg` и `.py` файлы имеют права `-rwxr-xr-x`.
 
-3. **Проверка через веб-интерфейс:**
+2. **Проверка через веб-интерфейс:**
 Откройте страницу http://localhost:27100/service/ и проверьте:
    - Если видите красное предупреждение о проблемах со скриптами, выполните команду из п.1
    - После установки прав перезагрузите страницу
    - Кнопка "Обновить базу" должна стать активной
 
-4. **Если проблема сохраняется:**
+3. **Проверка файла статуса импорта:**
 ```bash
-# Проверьте логи PHP-FPM
-docker-compose logs php-fpm
+# Файл статуса теперь находится в cache директории
+docker-compose exec php-fpm cat /application/cache/sql_status
 
-# Проверьте файл статуса импорта
-docker-compose exec php-fpm cat /application/sql/status
+# Проверьте права на директорию cache
+docker-compose exec php-fpm ls -la /application/cache/
+```
+
+4. **Проверка логов PHP-FPM:**
+```bash
+# Просмотр последних ошибок
+docker-compose logs php-fpm --tail=100
+```
+
+5. **Проверка запущен ли процесс импорта:**
+```bash
+# Проверка активных процессов импорта
+docker-compose exec php-fpm ps aux | grep -E 'app_import|app_reindex|app_topg'
+```
+
+6. **Проверка прав на директории:**
+```bash
+# Проверьте права на запись в директории
+docker-compose exec php-fpm ls -la /application/sql/
+docker-compose exec php-fpm ls -la /application/cache/
+docker-compose exec php-fpm ls -la /application/cache/tmp/
 ```
 
 **Предупреждение на странице сервиса:**
-Если на странице отображается красное предупреждение с ошибками о недоступных скриптах, это означает что PHP не может выполнить необходимые команды. Исправьте права доступа, как описано выше.
+Если на странице отображается красное предупреждение с текстом:
+- "Скрипт импорта не найден"
+- "Скрипт не имеет прав на выполнение"
+- "Скрипт конвертации SQL не найден"
+
+Это означает что PHP не может выполнить необходимые команды. Исправьте права доступа, как описано выше.
+
+**Примечание:** Скрипт автоматической установки `install.sh` устанавливает права автоматически при запуске.
 
 ### Проблемы с загрузкой образов Docker
 
