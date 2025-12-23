@@ -41,11 +41,17 @@ $stmt = $dbh->prepare("SELECT * FROM book_zip WHERE :bookid BETWEEN start_id AND
 $stmt->bindParam(":bookid", $bookId, PDO::PARAM_INT);
 $stmt->bindParam(":usr", $usr, PDO::PARAM_INT);
 $stmt->execute();
-$zip_name = $stmt->fetch()->filename;
-$zip = new ZipArchive(); 
+$zip_result = $stmt->fetch();
+if (!$zip_result) {
+	echo "<div id='reader' class='reader'>";
+	echo "<div class='alert alert-danger'>ZIP файл не найден для книги ID: $bookId. Возможно, требуется обновить индекс ZIP файлов.</div>";
+	echo "</div>";
+} else {
+	$zip_name = $zip_result->filename;
+	$zip = new ZipArchive(); 
 
-echo "<div id='reader' class='reader'>";
-if ($zip->open(ROOT_PATH . "flibusta/" . $zip_name)) {
+	echo "<div id='reader' class='reader'>";
+	if ($zip->open(ROOT_PATH . "flibusta/" . $zip_name)) {
 	if ($ext == 'fb2') {
 		include('fb.php');
 	}
@@ -82,9 +88,12 @@ if ($zip->open(ROOT_PATH . "flibusta/" . $zip_name)) {
 		include('html.php');
 	}
 
-	$zip->close();
+		$zip->close();
+	} else {
+		echo "<div class='alert alert-danger'>Не удалось открыть ZIP файл: $zip_name</div>";
+	}
+	echo "</div>";
 }
 
 
 ?>
-</div>

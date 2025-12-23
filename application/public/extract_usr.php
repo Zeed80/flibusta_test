@@ -31,10 +31,15 @@ if ($usr_filename == '') {
 $zip_stmt = $dbh->prepare("SELECT * FROM book_zip WHERE (:id BETWEEN start_id AND end_id) AND usr=1");
 $zip_stmt->bindParam(":id", $id, PDO::PARAM_INT);
 $zip_stmt->execute();
-$zip_name = $zip_stmt->fetchObject()->filename;
+$zip_result = $zip_stmt->fetchObject();
+if (!$zip_result) {
+	http_response_code(404);
+	die("ZIP файл не найден для книги ID: $id");
+}
+$zip_name = $zip_result->filename;
 $zip = new ZipArchive(); 
 
-if ($zip->open("/work/fb/Flibusta.Net/" . $zip_name)) {
+if ($zip->open(ROOT_PATH . "flibusta/" . $zip_name)) {
 	$filename = $book->author_name . " - " . $book->booktitle . " " . $book->filename . "." . trim($book->filetype);
 
 	header('Content-Description: File Transfer');

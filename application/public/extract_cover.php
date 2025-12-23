@@ -103,7 +103,12 @@ $stmt = $dbh->prepare("SELECT * FROM book_zip WHERE :id BETWEEN start_id AND end
 $stmt->bindParam(":id", $id, PDO::PARAM_INT);
 $stmt->bindParam(":usr", $u, PDO::PARAM_INT);
 $stmt->execute();
-$zip_name = $stmt->fetch()->filename;
+$zip_result = $stmt->fetch();
+if (!$zip_result) {
+	http_response_code(404);
+	die("ZIP файл не найден для книги ID: $id");
+}
+$zip_name = $zip_result->filename;
 $zip = new ZipArchive(); 
 
 $result = $dbh->prepare("SELECT filename FROM libfilename where BookId=:id");
