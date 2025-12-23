@@ -235,44 +235,102 @@ function run_background_import($script_path) {
 	// Используем shell для запуска в фоне с перенаправлением вывода
 	$log_file = FLIBUSTA_SQL_STATUS;
 	
-	// Загружаем переменные окружения из dbinit.sh перед запуском
-	// Примечание: контейнер уже находится в рабочей директории, поэтому cd не нужен
-	$command = ". /application/tools/dbinit.sh && sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1 &";
+	// Создаем файл статуса заранее, чтобы скрипт мог в него писать
+	file_put_contents($log_file, "Запуск скрипта: " . basename($script_path) . "\n");
 	
-	// Запускаем через shell_exec в фоне (более надежно чем proc_open для фоновых задач)
+	// Убеждаемся, что директория для временных скриптов существует
+	if (!is_dir(FLIBUSTA_CACHE_TMP)) {
+		@mkdir(FLIBUSTA_CACHE_TMP, 0777, true);
+		@chmod(FLIBUSTA_CACHE_TMP, 0777);
+	}
+	
+	// Создаем временный wrapper скрипт для надежного запуска в фоне
+	$wrapper_script = FLIBUSTA_CACHE_TMP . '/run_' . basename($script_path) . '_' . time() . '.sh';
+	$wrapper_content = "#!/bin/sh\n";
+	$wrapper_content .= "cd /application\n";
+	$wrapper_content .= ". /application/tools/dbinit.sh\n";
+	$wrapper_content .= "sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1\n";
+	
+	// Создаем wrapper скрипт
+	if (file_put_contents($wrapper_script, $wrapper_content) === false) {
+		$error_msg = "Ошибка: Не удалось создать wrapper скрипт: $wrapper_script";
+		error_log($error_msg);
+		file_put_contents($log_file, $error_msg);
+		return false;
+	}
+	
+	// Устанавливаем права на выполнение
+	if (!chmod($wrapper_script, 0755)) {
+		$error_msg = "Ошибка: Не удалось установить права на выполнение для wrapper скрипта: $wrapper_script";
+		error_log($error_msg);
+		file_put_contents($log_file, $error_msg);
+		return false;
+	}
+	
+	// Запускаем wrapper скрипт в фоне через exec
+	$command = "sh " . escapeshellarg($wrapper_script) . " > /dev/null 2>&1 &";
+	
+	// Запускаем через exec для фоновых задач
 	$output = array();
 	$return_var = 0;
 	exec($command, $output, $return_var);
 	
-	// Даем скрипту время создать файл статуса
-	usleep(500000); // 0.5 секунды
+	// Логируем запуск
+	error_log("Попытка запуска скрипта: $script_path через wrapper: $wrapper_script");
 	
-	// Проверяем, что файл статуса создан (скрипт начал работу)
+	// Удаляем wrapper скрипт через несколько секунд (после запуска)
+	register_shutdown_function(function() use ($wrapper_script) {
+		if (file_exists($wrapper_script)) {
+			@unlink($wrapper_script);
+		}
+	});
+	
+	// Даем скрипту время создать файл статуса
+	usleep(1000000); // 1 секунда для надежности
+	
+	// Проверяем, что файл статуса существует и обновляется
 	if (file_exists(FLIBUSTA_SQL_STATUS)) {
 		$status_content = file_get_contents(FLIBUSTA_SQL_STATUS);
-		// Если файл содержит "importing" или "Создание индекса", значит скрипт запустился
-		// Если содержит "Ошибка" - это плохо, не возвращаем true
-		if ((strpos($status_content, "importing") !== false || 
-		     strpos($status_content, "Создание индекса") !== false ||
-		     strpos($status_content, "Конвертация") !== false ||
-		     strpos($status_content, "Импорт") !== false) &&
-		    strpos($status_content, "Ошибка") === false) {
+		
+		// Проверяем наличие ключевых слов, указывающих на успешный запуск
+		$success_keywords = ["importing", "Создание индекса", "Конвертация", "Импорт", "Запуск скрипта"];
+		$has_success_keyword = false;
+		foreach ($success_keywords as $keyword) {
+			if (stripos($status_content, $keyword) !== false) {
+				$has_success_keyword = true;
+				break;
+			}
+		}
+		
+		// Если содержит ошибку - это плохо
+		$has_error = (stripos($status_content, "Ошибка") !== false || 
+		              stripos($status_content, "Fatal error") !== false ||
+		              stripos($status_content, "Warning") !== false);
+		
+		if ($has_success_keyword && !$has_error) {
+			error_log("Скрипт успешно запущен: $script_path");
 			return true;
 		}
 	}
 	
-	// Если файл статуса не создан или содержит ошибку, проверяем через процесс
-	// Проверяем, запущен ли процесс скрипта
-	$process_check = "ps aux | grep -E '[s]h.*" . basename($script_path) . "'";
-	exec($process_check, $process_output, $process_return);
+	// Проверяем, запущен ли процесс скрипта через ps
+	$script_basename = basename($script_path);
+	$process_check = "ps aux | grep -v grep | grep -E '(sh|nohup).*" . preg_quote($script_basename, '/') . "'";
+	$process_output = shell_exec($process_check);
 	
-	if (!empty($process_output)) {
-		// Процесс запущен
+	if (!empty($process_output) && trim($process_output) !== '') {
+		error_log("Процесс скрипта найден: $script_path");
 		return true;
 	}
 	
-	// Если процесс не найден, возможно скрипт упал сразу
-	$error_msg = "Ошибка: Скрипт не смог запуститься. Проверьте права доступа и логи.";
+	// Если процесс не найден, читаем файл статуса для диагностики
+	$error_details = "Скрипт не запустился: $script_path";
+	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+		$status_content = file_get_contents(FLIBUSTA_SQL_STATUS);
+		$error_details .= "\nСодержимое файла статуса:\n" . substr($status_content, 0, 500);
+	}
+	
+	$error_msg = "Ошибка: Скрипт не смог запуститься.\n$error_details\nПроверьте права доступа, логи PHP-FPM и убедитесь, что скрипт имеет права на выполнение.";
 	file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
 	error_log($error_msg);
 	return false;
@@ -280,6 +338,15 @@ function run_background_import($script_path) {
 
 if (!$status_import) {
 	if (isset($_GET['import'])) {
+		// Проверка доступности необходимых функций
+		if (!function_exists('exec') && !function_exists('shell_exec')) {
+			$error_msg = "Ошибка: Функции exec() и shell_exec() недоступны. Проверьте настройки PHP (disable_functions).";
+			file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+			error_log($error_msg);
+			header("location:$webroot/service/?error=" . urlencode($error_msg));
+			exit;
+		}
+		
 		// Создаём необходимые директории перед запуском импорта
 		$dirs_to_create = [
 			FLIBUSTA_SQL_DIR . '/psql',
@@ -301,12 +368,34 @@ if (!$status_import) {
 		}
 		
 		// Безопасный запуск импорта SQL
-		if (function_exists('run_background_import') && run_background_import(FLIBUSTA_SCRIPT_IMPORT)) {
-			$status_fetch = true;
+		if (function_exists('run_background_import')) {
+			$result = run_background_import(FLIBUSTA_SCRIPT_IMPORT);
+			if (!$result) {
+				// Если запуск не удался, показываем ошибку
+				$error_content = file_exists(FLIBUSTA_SQL_STATUS) ? file_get_contents(FLIBUSTA_SQL_STATUS) : "Неизвестная ошибка";
+				header("location:$webroot/service/?error=" . urlencode($error_content));
+				exit;
+			}
+		} else {
+			$error_msg = "Ошибка: Функция run_background_import не найдена.";
+			file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+			error_log($error_msg);
+			header("location:$webroot/service/?error=" . urlencode($error_msg));
+			exit;
 		}
 		header("location:$webroot/service/");
+		exit;
 	}
 	if (isset($_GET['reindex'])) {
+		// Проверка доступности необходимых функций
+		if (!function_exists('exec') && !function_exists('shell_exec')) {
+			$error_msg = "Ошибка: Функции exec() и shell_exec() недоступны. Проверьте настройки PHP (disable_functions).";
+			file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+			error_log($error_msg);
+			header("location:$webroot/service/?error=" . urlencode($error_msg));
+			exit;
+		}
+		
 		// Создаём директорию для файла статуса, если нужно
 		$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
 		if (!is_dir($sql_dir)) {
@@ -318,10 +407,23 @@ if (!$status_import) {
 		}
 		
 		// Безопасный запуск реиндексации
-		if (function_exists('run_background_import') && run_background_import(FLIBUSTA_SCRIPT_REINDEX)) {
-			$status_fetch = true;
+		if (function_exists('run_background_import')) {
+			$result = run_background_import(FLIBUSTA_SCRIPT_REINDEX);
+			if (!$result) {
+				// Если запуск не удался, показываем ошибку
+				$error_content = file_exists(FLIBUSTA_SQL_STATUS) ? file_get_contents(FLIBUSTA_SQL_STATUS) : "Неизвестная ошибка";
+				header("location:$webroot/service/?error=" . urlencode($error_content));
+				exit;
+			}
+		} else {
+			$error_msg = "Ошибка: Функция run_background_import не найдена.";
+			file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+			error_log($error_msg);
+			header("location:$webroot/service/?error=" . urlencode($error_msg));
+			exit;
 		}
 		header("location:$webroot/service/");
+		exit;
 	}
 }
 
@@ -329,6 +431,16 @@ if ($status_import) {
 	$status = 'disabled';
 } else {
 	$status = '';
+}
+
+// Отображение ошибок запуска скриптов
+if (isset($_GET['error']) && !empty($_GET['error'])) {
+	$error_message = urldecode($_GET['error']);
+	echo "<div class='alert alert-danger' role='alert'>";
+	echo "<strong>❌ Ошибка при запуске скрипта:</strong><br>";
+	echo "<pre style='white-space: pre-wrap; word-wrap: break-word;'>" . htmlspecialchars($error_message) . "</pre>";
+	echo "<br><small>Проверьте логи PHP-FPM: <code>docker-compose logs php-fpm</code></small>";
+	echo "</div>";
 }
 
 // Отображение результата очистки кэша
@@ -354,24 +466,62 @@ if (isset($_GET['cache_cleared'])) {
 	}
 }
 
+// Проверка доступности функций PHP
+$function_errors = array();
+if (!function_exists('exec') && !function_exists('shell_exec')) {
+	$function_errors[] = "Критическая ошибка: Функции exec() и shell_exec() недоступны. Проверьте настройки PHP (disable_functions в php.ini).";
+} elseif (!function_exists('shell_exec')) {
+	$function_errors[] = "Предупреждение: Функция shell_exec() недоступна. Будет использоваться exec().";
+}
+
 // Проверка доступности скриптов
 $script_errors = array();
 if (!file_exists(FLIBUSTA_SCRIPT_IMPORT)) {
 	$script_errors[] = "Скрипт импорта не найден: " . FLIBUSTA_SCRIPT_IMPORT;
 } elseif (!is_executable(FLIBUSTA_SCRIPT_IMPORT)) {
-	$script_errors[] = "Скрипт импорта не имеет прав на выполнение";
+	$script_errors[] = "Скрипт импорта не имеет прав на выполнение: " . FLIBUSTA_SCRIPT_IMPORT;
 }
 
 if (!file_exists(FLIBUSTA_SCRIPT_REINDEX)) {
 	$script_errors[] = "Скрипт реиндексации не найден: " . FLIBUSTA_SCRIPT_REINDEX;
 } elseif (!is_executable(FLIBUSTA_SCRIPT_REINDEX)) {
-	$script_errors[] = "Скрипт реиндексации не имеет прав на выполнение";
+	$script_errors[] = "Скрипт реиндексации не имеет прав на выполнение: " . FLIBUSTA_SCRIPT_REINDEX;
 }
 
 if (!file_exists('/application/tools/app_topg')) {
 	$script_errors[] = "Скрипт конвертации SQL не найден: /application/tools/app_topg";
 } elseif (!is_executable('/application/tools/app_topg')) {
-	$script_errors[] = "Скрипт конвертации SQL не имеет прав на выполнение";
+	$script_errors[] = "Скрипт конвертации SQL не имеет прав на выполнение: /application/tools/app_topg";
+}
+
+// Проверка прав на директорию cache
+if (!is_writable(FLIBUSTA_CACHE_DIR)) {
+	$script_errors[] = "Директория cache не имеет прав на запись: " . FLIBUSTA_CACHE_DIR;
+}
+
+// Вывод критических ошибок функций
+if (!empty($function_errors)) {
+	echo "<div class='alert alert-danger' role='alert'>";
+	echo "<strong>🚨 Критические проблемы с PHP функциями:</strong><br>";
+	foreach ($function_errors as $error) {
+		echo "• " . htmlspecialchars($error) . "<br>";
+	}
+	echo "</div>";
+}
+
+// Диагностическая информация (только для отладки, можно отключить)
+$show_debug = isset($_GET['debug']);
+if ($show_debug) {
+	echo "<div class='alert alert-info' role='alert'>";
+	echo "<strong>🔍 Диагностическая информация:</strong><br>";
+	echo "• exec() доступна: " . (function_exists('exec') ? '✅ Да' : '❌ Нет') . "<br>";
+	echo "• shell_exec() доступна: " . (function_exists('shell_exec') ? '✅ Да' : '❌ Нет') . "<br>";
+	echo "• Директория cache доступна для записи: " . (is_writable(FLIBUSTA_CACHE_DIR) ? '✅ Да' : '❌ Нет') . "<br>";
+	echo "• Файл статуса существует: " . (file_exists(FLIBUSTA_SQL_STATUS) ? '✅ Да' : '❌ Нет') . "<br>";
+	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+		echo "• Размер файла статуса: " . filesize(FLIBUSTA_SQL_STATUS) . " байт<br>";
+	}
+	echo "</div>";
 }
 
 // Вывод предупреждений о скриптах
@@ -382,15 +532,23 @@ if (!empty($script_errors)) {
 		echo "• " . htmlspecialchars($error) . "<br>";
 	}
 	echo "<br><small>Убедитесь, что все скрипты в /application/tools/ имеют права на выполнение.<br>";
-	echo "Выполните: <code>docker-compose exec php-fpm sh -c \"cd /application/tools && chmod +x *.sh app_topg *.py\"</code></small>";
+	echo "Выполните: <code>docker-compose exec php-fpm sh -c \"cd /application/tools && chmod +x *.sh app_topg *.py\"</code><br>";
+	echo "Проверьте права на директорию cache: <code>docker-compose exec php-fpm sh -c \"chmod 777 /application/cache\"</code></small>";
 	echo "</div>";
 }
 
 echo "<div class='d-flex justify-content-between'>";
 echo "<a class='btn btn-primary m-1 $status' href='?import=sql'>Обновить базу</a> ";
 echo "<a class='btn btn-warning m-1' href='?empty=cache'>Очистить кэш</a> ";
-echo "<a class='btn btn-warning m-1' href='?reindex'>Сканирование ZIP</a> ";
+echo "<a class='btn btn-warning m-1 $status' href='?reindex'>Сканирование ZIP</a> ";
 echo "</div>";
+
+// Ссылка для диагностики
+if (empty($script_errors) && empty($function_errors)) {
+	echo "<div class='mt-2'>";
+	echo "<small><a href='?debug=1'>🔍 Показать диагностическую информацию</a></small>";
+	echo "</div>";
+}
 
 if ($status_import) {
 	$op = file_get_contents(FLIBUSTA_SQL_STATUS);
