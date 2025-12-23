@@ -382,7 +382,7 @@ function run_background_import($script_path) {
 	}
 	
 	// Проверяем наличие ключевых слов, указывающих на успешный запуск
-	$success_keywords = ["importing", "Создание индекса", "Конвертация", "Импорт", "Запуск скрипта"];
+	$success_keywords = ["importing", "Создание индекса", "Конвертация", "Импорт", "Запуск скрипта", "Реиндексация завершена успешно"];
 	$has_success_keyword = false;
 	if (!empty($status_content)) {
 		foreach ($success_keywords as $keyword) {
@@ -394,8 +394,21 @@ function run_background_import($script_path) {
 	}
 	
 	// Если процесс запущен ИЛИ файл статуса содержит ключевые слова - считаем успешным
-	if ($process_running || ($has_success_keyword && $status_file_exists)) {
-		error_log("Скрипт успешно запущен: $script_path (процесс: " . ($process_running ? "да" : "нет") . ", статус: " . ($has_success_keyword ? "да" : "нет") . ")");
+	// Также проверяем, что скрипт не завершился с ошибкой
+	$has_completion_keyword = false;
+	if (!empty($status_content)) {
+		$completion_keywords = ["Реиндексация завершена успешно", "Импорт завершен успешно", "завершен успешно"];
+		foreach ($completion_keywords as $keyword) {
+			if (stripos($status_content, $keyword) !== false) {
+				$has_completion_keyword = true;
+				break;
+			}
+		}
+	}
+	
+	// Если процесс запущен ИЛИ файл статуса содержит ключевые слова успешного запуска/завершения - считаем успешным
+	if ($process_running || ($has_success_keyword && $status_file_exists) || ($has_completion_keyword && $status_file_exists)) {
+		error_log("Скрипт успешно запущен: $script_path (процесс: " . ($process_running ? "да" : "нет") . ", статус: " . ($has_success_keyword ? "да" : "нет") . ", завершение: " . ($has_completion_keyword ? "да" : "нет") . ")");
 		return true;
 	}
 	

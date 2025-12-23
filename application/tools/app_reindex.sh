@@ -42,16 +42,30 @@ echo "Запуск PHP скрипта app_update_zip_list.php" >&2
 if php /application/tools/app_update_zip_list.php >>/application/cache/sql_status 2>&1; then
     php_exit_code=$?
     echo "PHP скрипт завершился с кодом: $php_exit_code" >&2
-    echo "Индекс zip-файлов успешно создан">>/application/cache/sql_status
-    echo "=== Реиндексация завершена успешно ===" >>/application/cache/sql_status
+    # Записываем результат в файл статуса
+    {
+        echo "Индекс zip-файлов успешно создан"
+        echo "=== Реиндексация завершена успешно ==="
+    } >>/application/cache/sql_status
+    # Принудительно синхронизируем запись на диск
+    sync /application/cache/sql_status 2>/dev/null || true
     echo "Реиндексация завершена успешно" >&2
+    # Небольшая задержка для синхронизации
+    sleep 0.5
     exit 0
 else
     php_exit_code=$?
     echo "PHP скрипт завершился с кодом ошибки: $php_exit_code" >&2
-    echo "Ошибка при создании индекса zip-файлов">>/application/cache/sql_status
-    echo "=== Реиндексация завершена с ошибками ===" >>/application/cache/sql_status
+    # Записываем ошибку в файл статуса
+    {
+        echo "Ошибка при создании индекса zip-файлов"
+        echo "=== Реиндексация завершена с ошибками ==="
+    } >>/application/cache/sql_status
+    # Принудительно синхронизируем запись на диск
+    sync /application/cache/sql_status 2>/dev/null || true
     echo "Реиндексация завершена с ошибками" >&2
+    # Небольшая задержка для синхронизации
+    sleep 0.5
     exit 1
 fi
 
