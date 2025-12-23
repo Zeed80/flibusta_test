@@ -84,7 +84,7 @@ if (file_exists(FLIBUSTA_SQL_STATUS)) {
 	$process_running = false;
 	if (function_exists('shell_exec')) {
 		$process_check = @shell_exec("ps aux | grep -E '(app_import_sql|app_reindex|app_topg|app_db_converter)' | grep -v grep");
-		$process_running = !empty($process_check) && trim($process_check) !== '';
+		$process_running = !empty($process_check) && is_string($process_check) && trim($process_check) !== '';
 	}
 	
 	// Импорт активен только если:
@@ -366,52 +366,60 @@ function run_background_import($script_path) {
 	});
 	
 	// Даем скрипту время создать файл статуса
-	usleep(1000000); // 1 секунда для надежности
+	usleep(2000000); // 2 секунды для надежности
+	
+	// Проверяем, запущен ли процесс скрипта через ps (это более надежная проверка)
+	$script_basename = basename($script_path);
+	$process_check = "ps aux | grep -v grep | grep -E '(sh|nohup).*" . preg_quote($script_basename, '/') . "'";
+	$process_output = @shell_exec($process_check);
+	$process_running = !empty($process_output) && is_string($process_output) && trim($process_output) !== '';
 	
 	// Проверяем, что файл статуса существует и обновляется
-	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+	$status_file_exists = file_exists(FLIBUSTA_SQL_STATUS);
+	$status_content = '';
+	if ($status_file_exists) {
 		$status_content = file_get_contents(FLIBUSTA_SQL_STATUS);
-		
-		// Проверяем наличие ключевых слов, указывающих на успешный запуск
-		$success_keywords = ["importing", "Создание индекса", "Конвертация", "Импорт", "Запуск скрипта"];
-		$has_success_keyword = false;
+	}
+	
+	// Проверяем наличие ключевых слов, указывающих на успешный запуск
+	$success_keywords = ["importing", "Создание индекса", "Конвертация", "Импорт", "Запуск скрипта"];
+	$has_success_keyword = false;
+	if (!empty($status_content)) {
 		foreach ($success_keywords as $keyword) {
 			if (stripos($status_content, $keyword) !== false) {
 				$has_success_keyword = true;
 				break;
 			}
 		}
-		
-		// Если содержит ошибку - это плохо
-		$has_error = (stripos($status_content, "Ошибка") !== false || 
-		              stripos($status_content, "Fatal error") !== false ||
-		              stripos($status_content, "Warning") !== false);
-		
-		if ($has_success_keyword && !$has_error) {
-			error_log("Скрипт успешно запущен: $script_path");
-			return true;
-		}
 	}
 	
-	// Проверяем, запущен ли процесс скрипта через ps
-	$script_basename = basename($script_path);
-	$process_check = "ps aux | grep -v grep | grep -E '(sh|nohup).*" . preg_quote($script_basename, '/') . "'";
-	$process_output = shell_exec($process_check);
-	
-	if (!empty($process_output) && is_string($process_output) && trim($process_output) !== '') {
-		error_log("Процесс скрипта найден: $script_path");
+	// Если процесс запущен ИЛИ файл статуса содержит ключевые слова - считаем успешным
+	if ($process_running || ($has_success_keyword && $status_file_exists)) {
+		error_log("Скрипт успешно запущен: $script_path (процесс: " . ($process_running ? "да" : "нет") . ", статус: " . ($has_success_keyword ? "да" : "нет") . ")");
 		return true;
 	}
 	
 	// Если процесс не найден, читаем файл статуса для диагностики
-	$error_details = "Скрипт не запустился: $script_path";
-	if (file_exists(FLIBUSTA_SQL_STATUS)) {
-		$status_content = file_get_contents(FLIBUSTA_SQL_STATUS);
-		$error_details .= "\nСодержимое файла статуса:\n" . substr($status_content, 0, 500);
+	$error_details = "Скрипт не запустился: $script_path\n";
+	$error_details .= "Процесс запущен: " . ($process_running ? "да" : "нет") . "\n";
+	$error_details .= "Файл статуса существует: " . ($status_file_exists ? "да" : "нет") . "\n";
+	
+	if ($status_file_exists && !empty($status_content)) {
+		$error_details .= "Содержимое файла статуса:\n" . substr($status_content, 0, 500);
+	} else {
+		$error_details .= "Файл статуса пуст или не создан. Возможные причины:\n";
+		$error_details .= "1. Нет прав на запись в /application/cache\n";
+		$error_details .= "2. Скрипт не может выполниться\n";
+		$error_details .= "3. Wrapper скрипт не запустился\n";
 	}
 	
 	$error_msg = "Ошибка: Скрипт не смог запуститься.\n$error_details\nПроверьте права доступа, логи PHP-FPM и убедитесь, что скрипт имеет права на выполнение.";
-	file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+	if ($status_file_exists) {
+		file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+	} else {
+		// Пытаемся создать файл статуса для отображения ошибки
+		@file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+	}
 	error_log($error_msg);
 	return false;
 }
