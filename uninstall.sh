@@ -13,7 +13,8 @@ NC='\033[0m' # No Color
 REMOVE_IMAGES=0
 REMOVE_VOLUMES=0
 REMOVE_CONFIG=0
-REMOVE_DATA=0
+REMOVE_CACHE=0
+REMOVE_SQL=0
 
 # Парсинг аргументов
 parse_arguments() {
@@ -31,15 +32,27 @@ parse_arguments() {
                 REMOVE_CONFIG=1
                 shift
                 ;;
+            --remove-cache)
+                REMOVE_CACHE=1
+                shift
+                ;;
+            --remove-sql)
+                REMOVE_SQL=1
+                shift
+                ;;
             --remove-data)
-                REMOVE_DATA=1
+                echo -e "${RED}⚠️ ВНИМАНИЕ: Опция --remove-data больше не поддерживается.${NC}"
+                echo -e "${YELLOW}Книги (Flibusta.Net) больше не удаляются автоматически.${NC}"
+                echo -e "${YELLOW}Используйте --remove-sql для удаления SQL файлов.${NC}"
+                echo -e "${YELLOW}Книги должны быть удалены вручную пользователем.${NC}"
                 shift
                 ;;
             --all)
                 REMOVE_IMAGES=1
                 REMOVE_VOLUMES=1
                 REMOVE_CONFIG=1
-                REMOVE_DATA=1
+                REMOVE_CACHE=1
+                REMOVE_SQL=1
                 shift
                 ;;
             -h|--help)
@@ -49,8 +62,17 @@ parse_arguments() {
                 echo "  --remove-images    Удалить Docker образы"
                 echo "  --remove-volumes   Удалить Docker volumes (БД будет удалена!)"
                 echo "  --remove-config    Удалить файлы конфигурации (.env, secrets)"
-                echo "  --remove-data      Удалить данные (книги, SQL файлы)"
-                echo "  --all              Удалить всё (опасно!)"
+                echo "  --remove-cache     Удалить кэш (cache/)"
+                echo "  --remove-sql      Удалить SQL файлы (FlibustaSQL/)"
+                echo "  --all              Удалить всё кроме книг (опасно!)"
+                echo ""
+                echo "⚠️  ВАЖНО:"
+                echo "  • Книги (Flibusta.Net) НИКОГДА не удаляются автоматически"
+                echo "  • SQL файлы (FlibustaSQL) удаляются только с опцией --remove-sql"
+                echo "  • Книги часто находятся на других дисках и должны быть удалены вручную"
+                echo "  • Для полного удаления: ./uninstall.sh --all"
+                echo "  • Удалите книги вручную, если это необходимо: rm -rf Flibusta.Net"
+                echo ""
                 echo "  -h, --help         Показать эту справку"
                 exit 0
                 ;;
@@ -152,44 +174,74 @@ remove_config() {
     [ -d "secrets" ] && rm -rf secrets && echo -e "${GREEN}✓ secrets удалены${NC}"
 }
 
-# Удаление данных
-remove_data() {
-    if [ $REMOVE_DATA -eq 0 ]; then
+# Удаление кэша
+remove_cache() {
+    if [ $REMOVE_CACHE -eq 0 ]; then
         return 0
     fi
-    
-    if ! confirm "Удалить данные (книги, SQL файлы)? (Необратимо!)"; then
+
+    if ! confirm "Удалить кэш (cache/)?"; then
         return 0
     fi
-    
-    echo -e "${BLUE}Удаление данных...${NC}"
-    
-    [ -d "FlibustaSQL" ] && rm -rf FlibustaSQL && echo -e "${GREEN}✓ FlibustaSQL удален${NC}"
-    [ -d "Flibusta.Net" ] && rm -rf Flibusta.Net && echo -e "${GREEN}✓ Flibusta.Net удален${NC}"
+
+    echo -e "${BLUE}Удаление кэша...${NC}"
+
     [ -d "cache" ] && rm -rf cache && echo -e "${GREEN}✓ cache удален${NC}"
+
+    echo -e "${YELLOW}⚠️  Книги (Flibusta.Net) и SQL файлы (FlibustaSQL) НЕ удалены${NC}"
+    echo -e "${YELLOW}⚠️  Они должны быть удалены вручную пользователем:${NC}"
+    echo -e "${YELLOW}     rm -rf Flibusta.Net FlibustaSQL${NC}"
+}
+
+# Удаление SQL файлов
+remove_sql() {
+    if [ $REMOVE_SQL -eq 0 ]; then
+        return 0
+    fi
+
+    if ! confirm "Удалить SQL файлы (FlibustaSQL/)?"; then
+        return 0
+    fi
+
+    echo -e "${BLUE}Удаление SQL файлов...${NC}"
+
+    [ -d "FlibustaSQL" ] && rm -rf FlibustaSQL && echo -e "${GREEN}✓ FlibustaSQL удален${NC}"
+
+    echo -e "${YELLOW}⚠️  Книги (Flibusta.Net) НЕ удалены${NC}"
+    echo -e "${YELLOW}⚠️  Они должны быть удалены вручную пользователем:${NC}"
+    echo -e "${YELLOW}     rm -rf Flibusta.Net${NC}"
 }
 
 # Главная функция
 main() {
     echo -e "${BLUE}Удаление Flibusta Local Mirror${NC}"
     echo ""
-    
+    echo -e "${YELLOW}⚠️  ВНИМАНИЕ:${NC}"
+    echo -e "${YELLOW}  Книги (Flibusta.Net) НИКОГДА не будут удалены автоматически${NC}"
+    echo -e "${YELLOW}  SQL файлы (FlibustaSQL) удаляются только с опцией --remove-sql${NC}"
+    echo -e "${YELLOW}  Книги часто находятся на других дисках и должны быть удалены вручную${NC}"
+    echo ""
+
     parse_arguments "$@"
-    
+
     # Остановка контейнеров
     stop_containers
-    
+
     # Удаление компонентов
     remove_images
     remove_volumes
     remove_config
-    remove_data
-    
+    remove_cache
+    remove_sql
+
     echo ""
     echo -e "${GREEN}Удаление завершено${NC}"
     echo ""
-    echo "Остались файлы проекта. Для полного удаления:"
-    echo "  rm -rf $(pwd)"
+    echo -e "${YELLOW}⚠️  Для ручного удаления книг:${NC}"
+    echo -e "  ${BLUE}rm -rf Flibusta.Net${NC}"
+    echo ""
+    echo -e "${YELLOW}Для удаления оставшихся файлов проекта:${NC}"
+    echo -e "  ${BLUE}rm -rf $(pwd)${NC}"
 }
 
 main "$@"
