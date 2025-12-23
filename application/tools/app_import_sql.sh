@@ -1,7 +1,7 @@
 #!/bin/sh
 # app_import_sql.sh - Импорт SQL файлов с улучшенной обработкой ошибок
 
-source /application/tools/dbinit.sh
+. /application/tools/dbinit.sh
 
 # Цвета для вывода
 GREEN='\033[0;32m'
@@ -13,31 +13,13 @@ NC='\033[0m'
 ERROR_COUNT=0
 SUCCESS_COUNT=0
 FAILED_FILES=""
-SQL_FILES=(
-    "lib.a.annotations_pics.sql"
-    "lib.b.annotations_pics.sql"
-    "lib.a.annotations.sql"
-    "lib.b.annotations.sql"
-    "lib.libavtorname.sql"
-    "lib.libavtor.sql"
-    "lib.libbook.sql"
-    "lib.libfilename.sql"
-    "lib.libgenrelist.sql"
-    "lib.libgenre.sql"
-    "lib.libjoinedbooks.sql"
-    "lib.librate.sql"
-    "lib.librecs.sql"
-    "lib.libseqname.sql"
-    "lib.libseq.sql"
-    "lib.libtranslator.sql"
-    "lib.reviews.sql"
-)
+SQL_FILES="lib.a.annotations_pics.sql lib.b.annotations_pics.sql lib.a.annotations.sql lib.b.annotations.sql lib.libavtorname.sql lib.libavtor.sql lib.libbook.sql lib.libfilename.sql lib.libgenrelist.sql lib.libgenre.sql lib.libjoinedbooks.sql lib.librate.sql lib.librecs.sql lib.libseqname.sql lib.libseq.sql lib.libtranslator.sql lib.reviews.sql"
 
 # Функция безопасного выполнения команды
 safe_execute() {
-    local description="$1"
-    local command="$2"
-    local critical="${3:-0}"  # Критическая ли операция
+    description="$1"
+    command="$2"
+    critical="${3:-0}"  # Критическая ли операция
     
     echo -e "${YELLOW}Выполняется: $description${NC}"
     
@@ -46,14 +28,14 @@ safe_execute() {
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         return 0
     else
-        local exit_code=$?
+        exit_code=$?
         echo -e "${RED}✗ Ошибка при $description (код: $exit_code)${NC}" | tee -a /application/sql/status
         
-        if [ $critical -eq 1 ]; then
-            FAILED_FILES+="$description (КРИТИЧЕСКАЯ ОШИБКА)\n"
+        if [ "$critical" -eq 1 ]; then
+            FAILED_FILES="$FAILED_FILES$description (КРИТИЧЕСКАЯ ОШИБКА)\n"
             ERROR_COUNT=$((ERROR_COUNT + 1))
         else
-            FAILED_FILES+="$description (код: $exit_code)\n"
+            FAILED_FILES="$FAILED_FILES$description (код: $exit_code)\n"
         fi
         
         ERROR_COUNT=$((ERROR_COUNT + 1))
@@ -67,6 +49,8 @@ mkdir -p /application/cache/covers
 mkdir -p /application/cache/tmp
 
 # Создаем файл статуса импорта для PHP проверки
+# Убеждаемся, что директория существует
+mkdir -p /application/sql
 echo "importing" > /application/sql/status
 
 # Распаковка sql.gz файлов
@@ -77,12 +61,12 @@ echo ""
 echo -e "${GREEN}=== Начало импорта SQL файлов ===${NC}"
 echo ""
 
-for sql_file in "${SQL_FILES[@]}"; do
+for sql_file in $SQL_FILES; do
     if [ -f "/application/sql/$sql_file" ]; then
         safe_execute "Импорт $sql_file" "/application/tools/app_topg $sql_file 2>&1" 0
     else
         echo -e "${RED}✗ Файл не найден: $sql_file${NC}" | tee -a /application/sql/status
-        FAILED_FILES+="$sql_file (файл не найден)\n"
+        FAILED_FILES="$FAILED_FILES$sql_file (файл не найден)\n"
         ERROR_COUNT=$((ERROR_COUNT + 1))
     fi
 done

@@ -43,7 +43,15 @@ if (!defined('FLIBUSTA_SCRIPT_UPDATE_ZIP')) {
 // Безопасная проверка статуса импорта (проверяем файл статуса вместо shell_exec)
 $status_import = false;
 if (file_exists(FLIBUSTA_SQL_STATUS)) {
-	$status_import = true;
+	$status_content = trim(file_get_contents(FLIBUSTA_SQL_STATUS));
+	// Импорт активен, если файл не пустой и не содержит только ошибку без "importing" или "Создание индекса"
+	if (!empty($status_content) && 
+	    (stripos($status_content, "importing") !== false || 
+	     stripos($status_content, "Создание индекса") !== false ||
+	     stripos($status_content, "Конвертация") !== false ||
+	     stripos($status_content, "Импорт") !== false)) {
+		$status_import = true;
+	}
 }
 
 // Безопасное получение размера директории без shell_exec
@@ -124,7 +132,7 @@ if (isset($_GET['empty'])) {
 	header("location:$webroot/service/");
 }
 
-// Безопасный запуск импорта SQL с использованием PHP proc_open
+// Безопасный запуск импорта SQL с использованием PHP proc_open в фоновом режиме
 function run_background_import($script_path) {
 	// Проверка существования файла скрипта
 	if (!file_exists($script_path)) {
@@ -147,40 +155,48 @@ function run_background_import($script_path) {
 		}
 	}
 	
-	$descriptorspec = array(
-		0 => array("pipe", "r"),  // stdin
-		1 => array("pipe", "w"),  // stdout
-		2 => array("pipe", "w"),  // stderr
-	);
+	// Убеждаемся, что директория для файла статуса существует
+	$sql_dir = dirname(FLIBUSTA_SQL_STATUS);
+	if (!is_dir($sql_dir)) {
+		@mkdir($sql_dir, 0755, true);
+	}
 	
-	$process = proc_open($script_path, $descriptorspec, $pipes);
+	// Запуск скрипта в фоновом режиме
+	// Используем shell для запуска в фоне с перенаправлением вывода
+	$log_file = FLIBUSTA_SQL_STATUS;
+	$command = "sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1 &";
 	
-	if (is_resource($process)) {
-		// Читаем вывод скрипта для логирования
-		$output = stream_get_contents($pipes[1]);
-		$errors = stream_get_contents($pipes[2]);
-		
-		fclose($pipes[0]);  // Не пишем в stdin
-		fclose($pipes[1]);
-		fclose($pipes[2]);
-		
-		$exit_code = proc_close($process);
-		
-		// Логируем результат
-		if ($exit_code !== 0) {
-			$error_msg = "Ошибка выполнения скрипта $script_path. Код выхода: $exit_code";
-			if (!empty($errors)) {
-				$error_msg .= "\nОшибки:\n$errors";
-			}
-			file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
-			error_log($error_msg);
-			return false;
+	// Запускаем через shell_exec в фоне (более надежно чем proc_open для фоновых задач)
+	$output = array();
+	$return_var = 0;
+	exec($command . " echo $!", $output, $return_var);
+	
+	// Даем скрипту время создать файл статуса
+	usleep(500000); // 0.5 секунды
+	
+	// Проверяем, что файл статуса создан (скрипт начал работу)
+	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+		$status_content = file_get_contents(FLIBUSTA_SQL_STATUS);
+		// Если файл содержит "importing" или "Создание индекса", значит скрипт запустился
+		if (strpos($status_content, "importing") !== false || 
+		    strpos($status_content, "Создание индекса") !== false ||
+		    strpos($status_content, "Ошибка") === false) {
+			return true;
 		}
-		
+	}
+	
+	// Если файл статуса не создан или содержит ошибку, проверяем через процесс
+	// Проверяем, запущен ли процесс скрипта
+	$process_check = "ps aux | grep -E '[s]h.*" . basename($script_path) . "'";
+	exec($process_check, $process_output, $process_return);
+	
+	if (!empty($process_output)) {
+		// Процесс запущен
 		return true;
 	}
 	
-	$error_msg = "Ошибка: Не удалось запустить процесс для скрипта: $script_path";
+	// Если процесс не найден, возможно скрипт упал сразу
+	$error_msg = "Ошибка: Скрипт не смог запуститься. Проверьте права доступа и логи.";
 	file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
 	error_log($error_msg);
 	return false;
@@ -246,9 +262,9 @@ echo "<a class='btn btn-warning m-1' href='?reindex'>Сканирование ZI
 echo "</div>";
 
 if ($status_import) {
-	$op = file_get_contents('/application/sql/status');;
+	$op = file_get_contents(FLIBUSTA_SQL_STATUS);
 	echo "<div class='d-flex align-items-center m-3'>";
-	echo nl2br($op);
+	echo nl2br(htmlspecialchars($op));
 	echo "<div class='spinner-border ms-auto' role='status' aria-hidden='true'></div></div>";
 	header("Refresh:10");
 }
