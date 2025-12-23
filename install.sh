@@ -454,14 +454,13 @@ init_database() {
     local php_container=$(docker ps -q -f name=php-fpm | head -1)
     if [ -n "$php_container" ] && [ -f "scripts/init_database.sh" ]; then
         docker cp scripts/init_database.sh ${php_container}:/application/scripts/init_database.sh 2>/dev/null || true
-        docker exec ${php_container} chmod +x /application/scripts/init_database.sh 2>/dev/null || true
     fi
     
     # Запуск инициализации
     if [ -n "$php_container" ]; then
-        docker exec ${php_container} bash /application/scripts/init_database.sh 2>/dev/null || \
-        $compose_cmd exec php-fpm bash /application/scripts/init_database.sh 2>/dev/null || true
-        log "${GREEN}✓ Инициализация БД завершена${NC}"
+        docker exec ${php_container} sh /application/scripts/init_database.sh 2>/dev/null || \
+            $compose_cmd exec php-fpm sh /application/scripts/init_database.sh 2>/dev/null || true
+            log "${GREEN}✓ Инициализация БД завершена${NC}"
     else
         log "${YELLOW}⚠ Контейнер php-fpm не найден. Инициализацию БД нужно выполнить вручную.${NC}"
         log "${YELLOW}Откройте: http://localhost:$WEB_PORT и перейдите в меню 'Сервис' -> 'Обновить базу'${NC}"
