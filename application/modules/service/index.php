@@ -28,6 +28,11 @@ if (!defined('FLIBUSTA_SQL_STATUS')) {
 	// Используем cache директорию для файла статуса, так как там есть права на запись
 	define('FLIBUSTA_SQL_STATUS', FLIBUSTA_CACHE_DIR . '/sql_status');
 }
+
+// Функция для удаления ANSI escape-кодов (цветов) из текста
+function strip_ansi_codes($text) {
+	return preg_replace('/\x1b\[[0-9;]*m/', '', $text);
+}
 if (!defined('FLIBUSTA_TOOLS_DIR')) {
 	define('FLIBUSTA_TOOLS_DIR', '/application/tools');
 }
@@ -559,11 +564,57 @@ if (empty($script_errors) && empty($function_errors)) {
 	echo "</div>";
 }
 
+// Обработка просмотра полного лога
+if (isset($_GET['view_full_log'])) {
+	header('Content-Type: text/plain; charset=utf-8');
+	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+		$full_log = file_get_contents(FLIBUSTA_SQL_STATUS);
+		// Удаляем ANSI escape-коды для читаемости
+		echo strip_ansi_codes($full_log);
+	} else {
+		echo "Файл статуса не найден.";
+	}
+	exit;
+}
+
 if ($status_import) {
-	$op = file_get_contents(FLIBUSTA_SQL_STATUS);
-	echo "<div class='d-flex align-items-center m-3'>";
+	$op = '';
+	$total_lines = 0;
+	$show_lines = 100;
+	
+	if (file_exists(FLIBUSTA_SQL_STATUS)) {
+		$full_log = file_get_contents(FLIBUSTA_SQL_STATUS);
+		// Удаляем ANSI escape-коды (цвета) для читаемости в браузере
+		$full_log = strip_ansi_codes($full_log);
+		// Показываем только последние 100 строк, чтобы не раздувать страницу
+		$lines = explode("\n", $full_log);
+		$total_lines = count($lines);
+		
+		if ($total_lines > $show_lines) {
+			$op = "... (показаны последние $show_lines строк из $total_lines)\n\n";
+			$op .= implode("\n", array_slice($lines, -$show_lines));
+		} else {
+			$op = $full_log;
+		}
+	} else {
+		$op = "Ожидание запуска скрипта...";
+	}
+	
+	echo "<div class='m-3'>";
+	echo "<div class='d-flex align-items-center mb-2'>";
+	echo "<strong>Статус импорта:</strong>";
+	echo "<div class='spinner-border spinner-border-sm ms-2' role='status' aria-hidden='true'></div>";
+	echo "</div>";
+	echo "<div style='max-height: 400px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.25rem; padding: 1rem; font-family: monospace; font-size: 0.875rem;'>";
 	echo nl2br(htmlspecialchars($op));
-	echo "<div class='spinner-border ms-auto' role='status' aria-hidden='true'></div></div>";
+	echo "</div>";
+	echo "<div class='mt-2'>";
+	echo "<small class='text-muted'>Страница обновляется автоматически каждые 10 секунд</small>";
+	if (file_exists(FLIBUSTA_SQL_STATUS) && $total_lines > $show_lines) {
+		echo " | <small><a href='?view_full_log=1' target='_blank'>Показать полный лог</a></small>";
+	}
+	echo "</div>";
+	echo "</div>";
 	header("Refresh:10");
 }
 
