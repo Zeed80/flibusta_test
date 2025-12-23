@@ -286,6 +286,13 @@ start_containers() {
     $compose_cmd exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py" 2>/dev/null || true
     log "${GREEN}✓ Права на выполнение установлены${NC}"
     
+    # Установка прав на запись для директории cache
+    log "${BLUE}Установка прав на запись для директории cache...${NC}"
+    $compose_cmd exec -T php-fpm sh -c "chmod -R 777 /application/cache 2>/dev/null || true" 2>/dev/null || true
+    # Также устанавливаем права на хосте (если возможно)
+    chmod -R 777 cache 2>/dev/null || true
+    log "${GREEN}✓ Права на cache установлены${NC}"
+    
     # Ожидание готовности
     log "${BLUE}Ожидание готовности сервисов...${NC}"
     sleep 10

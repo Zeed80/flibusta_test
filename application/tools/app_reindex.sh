@@ -3,7 +3,13 @@
 mkdir -p /application/cache
 chmod 777 /application/cache 2>/dev/null || true
 
-# Создаем файл статуса, если его нет
+# Создаем файл статуса, если его нет, и устанавливаем права
+if [ ! -f /application/cache/sql_status ]; then
+    touch /application/cache/sql_status
+    chmod 666 /application/cache/sql_status 2>/dev/null || true
+fi
+
+# Добавляем сообщение в файл статуса
 echo "Создание индекса zip-файлов">>/application/cache/sql_status
 
 # Переходим в рабочую директорию для надежности

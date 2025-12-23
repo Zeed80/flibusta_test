@@ -51,7 +51,8 @@ $status_import = false;
 $status_file_stale = false; // Флаг "зависшего" процесса
 
 if (file_exists(FLIBUSTA_SQL_STATUS)) {
-	$status_content = trim(file_get_contents(FLIBUSTA_SQL_STATUS));
+	$status_content_raw = file_get_contents(FLIBUSTA_SQL_STATUS);
+	$status_content = $status_content_raw !== false ? trim($status_content_raw) : '';
 	$status_file_mtime = filemtime(FLIBUSTA_SQL_STATUS);
 	$current_time = time();
 	$time_since_update = $current_time - $status_file_mtime;
@@ -300,8 +301,14 @@ function run_background_import($script_path) {
 	// Используем shell для запуска в фоне с перенаправлением вывода
 	$log_file = FLIBUSTA_SQL_STATUS;
 	
-	// Создаем файл статуса заранее, чтобы скрипт мог в него писать
+	// Создаем файл статуса заранее через PHP, чтобы скрипт мог в него писать
+	// Убеждаемся, что файл существует и имеет правильные права
+	if (!file_exists($log_file)) {
+		@touch($log_file);
+		@chmod($log_file, 0666);
+	}
 	file_put_contents($log_file, "Запуск скрипта: " . basename($script_path) . "\n");
+	@chmod($log_file, 0666); // Устанавливаем права на запись для всех
 	
 	// Убеждаемся, что директория для временных скриптов существует
 	if (!is_dir(FLIBUSTA_CACHE_TMP)) {
@@ -315,6 +322,11 @@ function run_background_import($script_path) {
 	$wrapper_content .= "# Убеждаемся, что директория cache существует и имеет права на запись\n";
 	$wrapper_content .= "mkdir -p /application/cache\n";
 	$wrapper_content .= "chmod 777 /application/cache 2>/dev/null || true\n";
+	$wrapper_content .= "# Создаем файл статуса, если его нет, и устанавливаем права\n";
+	$wrapper_content .= "if [ ! -f " . escapeshellarg($log_file) . " ]; then\n";
+	$wrapper_content .= "    touch " . escapeshellarg($log_file) . "\n";
+	$wrapper_content .= "    chmod 666 " . escapeshellarg($log_file) . " 2>/dev/null || true\n";
+	$wrapper_content .= "fi\n";
 	$wrapper_content .= "cd /application\n";
 	$wrapper_content .= ". /application/tools/dbinit.sh\n";
 	$wrapper_content .= "sh " . escapeshellarg($script_path) . " >> " . escapeshellarg($log_file) . " 2>&1\n";
@@ -386,7 +398,7 @@ function run_background_import($script_path) {
 	$process_check = "ps aux | grep -v grep | grep -E '(sh|nohup).*" . preg_quote($script_basename, '/') . "'";
 	$process_output = shell_exec($process_check);
 	
-	if (!empty($process_output) && trim($process_output) !== '') {
+	if (!empty($process_output) && is_string($process_output) && trim($process_output) !== '') {
 		error_log("Процесс скрипта найден: $script_path");
 		return true;
 	}
