@@ -121,8 +121,8 @@ main() {
     parse_arguments "$@"
     check_required
     
-    log -e "${GREEN}Быстрая установка Flibusta Local Mirror${NC}"
-    log ""
+    echo -e "${GREEN}Быстрая установка Flibusta Local Mirror${NC}"
+    echo ""
     
     # Построение команды install.sh
     local install_cmd="./install.sh"

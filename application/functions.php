@@ -217,7 +217,8 @@ function book_info_pg($book, $webroot = '', $full = false) {
 	echo "<div style='margin-bottom: 3px;'>";
 	$genres = $dbh->prepare("SELECT GenreId, GenreDesc FROM libgenre 
 		JOIN libgenrelist USING(GenreId)
-		WHERE BookId=$book->bookid");
+		WHERE BookId=:bookid");
+	$genres->bindParam(":bookid", $book->bookid);
 	$genres->execute();
 	while ($g = $genres->fetch()) {
 		echo "<a class='badge bg-success p-1 text-white' href='$webroot/?gid=$g->genreid'>$g->genredesc</a> ";
@@ -265,7 +266,9 @@ function book_info_pg($book, $webroot = '', $full = false) {
 
 date_default_timezone_set('Europe/Minsk');
 date_default_timezone_set('Etc/GMT-3');
-setlocale(LC_ALL, 'rus_RUS');
+setlocale(LC_ALL, 'ru_RU.UTF-8');
+mb_internal_encoding('UTF-8');
+mb_http_output('UTF-8');
 
 $m_time = explode(" ",microtime());
 $m_time = $m_time[0] + $m_time[1];

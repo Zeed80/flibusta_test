@@ -5,24 +5,40 @@ include("../init.php");
 session_start();
 decode_gurl($webroot);
 
+// Валидация UUID v4
+function validate_uuid($uuid) {
+	return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $uuid);
+}
+
 $user_name = 'Книжные полки';
+
+// Логин пользователя с валидацией UUID
 if (isset($_GET['login_uuid'])) {
-	$_SESSION['user_uuid'] = $_GET['login_uuid'];
+	if (validate_uuid($_GET['login_uuid'])) {
+		$_SESSION['user_uuid'] = $_GET['login_uuid'];
+	} else {
+		// Неверный UUID, игнорируем
+	}
 }
 
+// Удаление пользователя с валидацией UUID
 if (isset($_GET['delete_uuid'])) {
-	$uu = $_GET['delete_uuid'];
-	$stmt = $dbh->prepare("DELETE FROM fav_users WHERE user_uuid=:uuid");
-	$stmt->bindParam(":uuid", $uu);
-	$stmt->execute();
-	$st = $dbh->prepare("DELETE FROM fav WHERE user_uuid=:uuid");
-	$st->bindParam(":uuid", $uu);
-	$st->execute();
+	if (validate_uuid($_GET['delete_uuid'])) {
+		$uu = $_GET['delete_uuid'];
+		$stmt = $dbh->prepare("DELETE FROM fav_users WHERE user_uuid=:uuid");
+		$stmt->bindParam(":uuid", $uu);
+		$stmt->execute();
+		$st = $dbh->prepare("DELETE FROM fav WHERE user_uuid=:uuid");
+		$st->bindParam(":uuid", $uu);
+		$st->execute();
+	}
 }
 
+// Создание новой книжной полки с валидацией имени
 if (isset($_GET['new_uuid'])) {
 	$nname = trim($_GET['new_uuid']);
-	if ($nname !== '') {
+	// Валидация имени: только буквы, цифры, пробелы и русские символы, макс 32 символа
+	if ($nname !== '' && preg_match('/^[a-zA-Zа-яА-ЯёЁ0-9\s\-\.]{1,32}$/u', $nname)) {
 		$stmt = $dbh->prepare("INSERT INTO fav_users (user_uuid, name) VALUES (uuid_generate_v1(), :name)");
 		$stmt->bindParam(":name", $nname);
 		$stmt->execute();

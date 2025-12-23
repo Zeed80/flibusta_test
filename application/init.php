@@ -12,6 +12,10 @@ include_once(ROOT_PATH . 'webroot.php');
 session_set_cookie_params(3600 * 24 * 31 * 12,"/");
 #session_start();
 
+// Установка кодировки UTF-8
+mb_internal_encoding('UTF-8');
+mb_http_output('UTF-8');
+
 error_reporting(E_ALL);
 
 $cdt = date('Y-m-d H:i:s');

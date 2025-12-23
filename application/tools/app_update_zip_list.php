@@ -1,8 +1,14 @@
 <?php
+// Константы путей (вынесены для удобства конфигурации)
+if (!defined('FLIBUSTA_BOOKS_DIR')) {
+	define('FLIBUSTA_BOOKS_DIR', '/application/flibusta');
+}
+
 error_reporting(E_ALL);
 include('../dbinit.php');
 
-if ($handle = opendir('/application/flibusta')) {
+// Открываем директорию с константой
+if ($handle = opendir(FLIBUSTA_BOOKS_DIR)) {
 	$stmt = $dbh->prepare("TRUNCATE book_zip;");
 	$stmt->execute();
 

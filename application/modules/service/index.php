@@ -5,19 +5,71 @@
 <h4 class="rounded-top p-1" style="background: #d0d0d0;">Статистика</h4>
 <div class='card-body'>
 <?php
-$status_import = (trim(shell_exec('ps aux|grep app_|grep -v grep') ?? '') !== '');
+// Константы путей к директориям
+if (!defined('FLIBUSTA_CACHE_DIR')) {
+	define('FLIBUSTA_CACHE_DIR', '/application/cache');
+}
+if (!defined('FLIBUSTA_CACHE_AUTHORS')) {
+	define('FLIBUSTA_CACHE_AUTHORS', FLIBUSTA_CACHE_DIR . '/authors');
+}
+if (!defined('FLIBUSTA_CACHE_COVERS')) {
+	define('FLIBUSTA_CACHE_COVERS', FLIBUSTA_CACHE_DIR . '/covers');
+}
+if (!defined('FLIBUSTA_CACHE_TMP')) {
+	define('FLIBUSTA_CACHE_TMP', FLIBUSTA_CACHE_DIR . '/tmp');
+}
+if (!defined('FLIBUSTA_BOOKS_DIR')) {
+	define('FLIBUSTA_BOOKS_DIR', '/application/flibusta');
+}
+if (!defined('FLIBUSTA_SQL_DIR')) {
+	define('FLIBUSTA_SQL_DIR', '/application/sql');
+}
+if (!defined('FLIBUSTA_SQL_STATUS')) {
+	define('FLIBUSTA_SQL_STATUS', FLIBUSTA_SQL_DIR . '/status');
+}
+if (!defined('FLIBUSTA_TOOLS_DIR')) {
+	define('FLIBUSTA_TOOLS_DIR', '/application/tools');
+}
+if (!defined('FLIBUSTA_SCRIPT_IMPORT')) {
+	define('FLIBUSTA_SCRIPT_IMPORT', FLIBUSTA_TOOLS_DIR . '/app_import_sql.sh');
+}
+if (!defined('FLIBUSTA_SCRIPT_REINDEX')) {
+	define('FLIBUSTA_SCRIPT_REINDEX', FLIBUSTA_TOOLS_DIR . '/app_reindex.sh');
+}
+if (!defined('FLIBUSTA_SCRIPT_UPDATE_ZIP')) {
+	define('FLIBUSTA_SCRIPT_UPDATE_ZIP', FLIBUSTA_TOOLS_DIR . '/app_update_zip_list.php');
+}
 
-function get_ds($path){
-	$io = popen ( '/usr/bin/du -sk ' . $path, 'r' );
-	$size = fgets ( $io, 4096);
-	$size = substr ( $size, 0, strpos ( $size, "\t" ) );
-	pclose ( $io );
-	return round($size / 1024, 1);
+// Безопасная проверка статуса импорта (проверяем файл статуса вместо shell_exec)
+$status_import = false;
+if (file_exists(FLIBUSTA_SQL_STATUS)) {
+	$status_import = true;
+}
+
+// Безопасное получение размера директории без shell_exec
+function get_ds($path) {
+	if (!is_dir($path)) {
+		return 0;
+	}
+	
+	$size = 0;
+	$iterator = new RecursiveIteratorIterator(
+		new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS),
+		RecursiveIteratorIterator::SELF_FIRST
+	);
+	
+	foreach ($iterator as $file) {
+		if ($file->isFile()) {
+			$size += $file->getSize();
+		}
+	}
+	
+	return round($size / 1024 / 1024, 1); // Возврат в GB
 }
 
 if (!$status_import) {
-	$cache_size = get_ds("/application/cache/covers") + get_ds("/application/cache/authors");
-	$books_size = round(get_ds("/application/flibusta") / 1024, 1);
+	$cache_size = get_ds(FLIBUSTA_CACHE_AUTHORS) + get_ds(FLIBUSTA_CACHE_COVERS);
+	$books_size = round(get_ds(FLIBUSTA_BOOKS_DIR) / 1024, 1);
 	$qtotal = $dbh->query("SELECT (SELECT MAX(time) FROM libbook) mmod, (SELECT COUNT(*) FROM libbook) bcnt, (SELECT COUNT(*) FROM libbook WHERE deleted='0') bdcnt");
 	$qtotal->execute();
 	$total = $qtotal->fetch();
@@ -41,22 +93,71 @@ if (!$status_import) {
 <div class='card-body'>
 <?php
 
-
+// Безопасная очистка кэша с использованием PHP функций
 if (isset($_GET['empty'])) {
-	shell_exec('rm /application/cache/authors/*');
-	shell_exec('rm /application/cache/covers/*');
+	// Очистка кэша авторов
+	$authors_cache_dir = FLIBUSTA_CACHE_AUTHORS;
+	if (is_dir($authors_cache_dir)) {
+		$files = glob($authors_cache_dir . '/*');
+		if (is_array($files)) {
+			foreach ($files as $file) {
+				if (is_file($file)) {
+					unlink($file);
+				}
+			}
+		}
+	}
+	
+	// Очистка кэша обложек
+	$covers_cache_dir = FLIBUSTA_CACHE_COVERS;
+	if (is_dir($covers_cache_dir)) {
+		$files = glob($covers_cache_dir . '/*');
+		if (is_array($files)) {
+			foreach ($files as $file) {
+				if (is_file($file)) {
+					unlink($file);
+				}
+			}
+		}
+	}
+	
 	header("location:$webroot/service/");
+}
+
+// Безопасный запуск импорта SQL с использованием PHP proc_open
+function run_background_import($script_path) {
+	$descriptorspec = array(
+		0 => array("pipe", "r"),  // stdin
+		1 => array("pipe", "w"),  // stdout
+		2 => array("pipe", "w"),  // stderr
+	);
+	
+	$process = proc_open($script_path, $descriptorspec, $pipes);
+	
+	if (is_resource($process)) {
+		fclose($pipes[0]);  // Не пишем в stdin
+		fclose($pipes[1]);
+		fclose($pipes[2]);
+		proc_close($process);
+		return true;
+	}
+	
+	return false;
 }
 
 if (!$status_import) {
 	if (isset($_GET['import'])) {
-		shell_exec('stdbuf -o0 /application/tools/app_import_sql.sh 2>/dev/null >/dev/null &');
-		$status_fetch = true;
+		// Безопасный запуск импорта SQL
+		if (function_exists('run_background_import') && run_background_import(FLIBUSTA_SCRIPT_IMPORT)) {
+			$status_fetch = true;
+		}
 		header("location:$webroot/service/");
 	}
 	if (isset($_GET['reindex'])) {
-		shell_exec('stdbuf -o0 /application/tools/app_reindex.sh 2>/dev/null >/dev/null &');
-		$status_fetch = true;
+		// Безопасный запуск реиндексации
+		if (function_exists('run_background_import') && run_background_import(FLIBUSTA_SCRIPT_REINDEX)) {
+			$status_fetch = true;
+		}
 		header("location:$webroot/service/");
 	}
 }

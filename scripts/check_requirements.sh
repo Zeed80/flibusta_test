@@ -110,14 +110,14 @@ check_port() {
 
 # Проверка свободного места
 check_disk_space() {
-    local required_gb=2
+    local required_gb=10
     local available_kb=$(df -BG . | tail -1 | awk '{print $4}' | sed 's/G//')
     local available_gb=${available_kb%.*}
     
     if [ "$available_gb" -ge "$required_gb" ]; then
         echo -e "${GREEN}✓${NC} Достаточно места на диске (${available_gb}GB свободно)"
     else
-        echo -e "${YELLOW}⚠${NC} Мало места на диске (${available_gb}GB свободно, рекомендуется минимум ${required_gb}GB)"
+        echo -e "${YELLOW}⚠${NC} Мало места на диске (${available_gb}GB свободно, требуется минимум ${required_gb}GB)"
         ((WARNINGS++))
     fi
 }

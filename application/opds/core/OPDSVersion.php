@@ -29,6 +29,10 @@ class OPDSVersion {
             $version = $_GET['opds_version'];
             if (in_array($version, [self::VERSION_1_0, self::VERSION_1_2])) {
                 return $version;
+            } else {
+                // Логируем ошибку и используем значение по умолчанию
+                error_log("Invalid OPDS version: $version");
+                return self::VERSION_1_2;
             }
         }
         

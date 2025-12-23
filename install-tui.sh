@@ -710,5 +710,282 @@ start_installation() {
     fi
 }
 
+# Новая функция: выбор из стандартных путей
+select_standard_path() {
+    local title=$1
+    local project_root=$(get_project_root)
+    local home_dir=$(get_home_dir)
+    local choice
+    
+    choice=$(dialog_menu "$title (Стандартные пути)" \
+        "Выберите стандартную папку:" \
+        "1" "Текущая папка проекта ($project_root)" \
+        "2" "Папка по умолчанию для SQL (./FlibustaSQL)" \
+        "3" "Папка по умолчанию для книг (./Flibusta.Net)" \
+        "4" "Домашняя директория ($home_dir)" \
+        "5" "/var/lib/flibusta (стандартный системный путь)" \
+        "6" "/mnt/data (распространенный путь для данных)")
+    
+    case $choice in
+        1)
+            echo "$project_root"
+            ;;
+        2)
+            echo "$project_root/FlibustaSQL"
+            ;;
+        3)
+            echo "$project_root/Flibusta.Net"
+            ;;
+        4)
+            echo "$home_dir"
+            ;;
+        5)
+            echo "/var/lib/flibusta"
+            ;;
+        6)
+            echo "/mnt/data"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# Новая функция: детальная валидация и подтверждение директории
+validate_and_confirm_directory() {
+    local title=$1
+    local selected_path=$2
+    local default_path=$3
+    local project_root=$(get_project_root)
+    
+    # Преобразуем в абсолютный путь
+    if [[ "$selected_path" != /* ]]; then
+        selected_path="$project_root/${selected_path#./}"
+    fi
+    
+    # Детальная проверка директории
+    local check_results=""
+    local has_errors=0
+    
+    # Проверка существования
+    if [ ! -d "$selected_path" ]; then
+        check_results+="❌ Директория не существует\n"
+        has_errors=1
+    else
+        check_results+="✅ Директория существует\n"
+        
+        # Проверка прав на чтение
+        if [ -r "$selected_path" ]; then
+            check_results+="✅ Есть права на чтение\n"
+        else
+            check_results+="❌ Нет прав на чтение\n"
+            has_errors=1
+        fi
+        
+        # Проверка прав на запись
+        if [ -w "$selected_path" ]; then
+            check_results+="✅ Есть права на запись\n"
+        else
+            check_results+="⚠️  Нет прав на запись (требуется для кэша)\n"
+        fi
+        
+        # Проверка содержимого
+        local sql_count=$(find "$selected_path" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
+        local zip_count=$(find "$selected_path" -maxdepth 1 -type f -name "*.zip" 2>/dev/null | wc -l)
+        local all_count=$(find "$selected_path" -maxdepth 1 -type f 2>/dev/null | wc -l)
+        
+        check_results+="📁 Найдено файлов: $all_count\n"
+        if [ $sql_count -gt 0 ]; then
+            check_results+="   - SQL файлов: $sql_count\n"
+        fi
+        if [ $zip_count -gt 0 ]; then
+            check_results+="   - ZIP архивов: $zip_count\n"
+        fi
+        
+        # Проверка доступного места
+        local free_space=$(df -h "$selected_path" 2>/dev/null | tail -1 | awk '{print $4}')
+        if [ -n "$free_space" ]; then
+            check_results+="💾 Свободно места: $free_space\n"
+        fi
+        
+        # Проверка на файловой системе (монтирование)
+        local mount_point=$(df "$selected_path" 2>/dev/null | tail -1 | awk '{print $6}')
+        if [ -n "$mount_point" ]; then
+            check_results+="🔀 Точка монтирования: $mount_point\n"
+        fi
+    fi
+    
+    # Относительный путь для отображения
+    local relative_path="$selected_path"
+    if [[ "$selected_path" = "$project_root"* ]]; then
+        relative_path=".${selected_path#$project_root}"
+    elif [ "$selected_path" = "$project_root" ]; then
+        relative_path="."
+    fi
+    
+    # Формируем сообщение подтверждения
+    local confirm_msg="Выбрана папка:\n\n"
+    confirm_msg+="📂 Путь:\n"
+    confirm_msg+="   Абсолютный: $selected_path\n"
+    confirm_msg+="   Относительный: $relative_path\n\n"
+    confirm_msg+="Проверки:\n$check_results\n"
+    
+    if [ $has_errors -eq 1 ]; then
+        confirm_msg+="⚠️  Обнаружены проблемы. Рекомендуется выбрать другую папку.\n"
+    fi
+    
+    confirm_msg+="Подтвердить выбор?"
+    
+    if dialog_yesno "Подтверждение выбора папки" "$confirm_msg"; then
+        if [ $has_errors -eq 1 ]; then
+            local confirm_with_errors
+            confirm_with_errors=$(dialog_menu "Подтверждение с предупреждениями" \
+                "В выбранной папке есть проблемы:\n\n$check_results\n\nВсё равно использовать эту папку?" \
+                "1" "Да, использовать эту папку" \
+                "2" "Нет, выбрать другую")
+            
+            case $confirm_with_errors in
+                1)
+                    echo "$relative_path"
+                    ;;
+                2)
+                    # Рекурсивный вызов
+                    select_directory "$title" "$default_path"
+                    ;;
+            esac
+        else
+            echo "$relative_path"
+        fi
+    else
+        # При отмене предлагаем выбрать другой путь
+        select_directory "$title" "$default_path"
+    fi
+}
+
+# Улучшенная функция выбора папки с несколькими режимами
+select_directory() {
+    local title=$1
+    local default_path=$2
+    local result
+    local absolute_default
+    local project_root=$(get_project_root)
+    
+    # Преобразуем относительный путь в абсолютный для начальной директории
+    if [ -z "$default_path" ]; then
+        absolute_default="$project_root"
+    elif [[ "$default_path" = /* ]]; then
+        absolute_default="$default_path"
+    else
+        # Для относительных путей начинаем с корня проекта
+        if [[ "$default_path" = ./* ]] || [[ "$default_path" != /* ]]; then
+            absolute_default="$project_root/${default_path#./}"
+        else
+            absolute_default="$(cd "$(dirname "$default_path")" 2>/dev/null && pwd)/$(basename "$default_path")"
+        fi
+        # Если путь не существует, используем корень проекта
+        if [ ! -d "$absolute_default" ]; then
+            absolute_default="$project_root"
+        fi
+    fi
+    
+    # Убеждаемся, что это директория
+    if [ ! -d "$absolute_default" ]; then
+        absolute_default="$(dirname "$absolute_default" 2>/dev/null || echo "$project_root")"
+    fi
+    if [ ! -d "$absolute_default" ]; then
+        absolute_default="$project_root"
+    fi
+    
+    # Предлагаем несколько режимов выбора
+    local choice
+    choice=$(dialog_menu "$title" \
+        "Выберите способ указания папки:" \
+        "1" "Использовать файловый навигатор (dialog dselect)" \
+        "2" "Ввести путь вручную" \
+        "3" "Выбрать из стандартных путей")
+    
+    case $choice in
+        1)
+            # Режим 1: Файловый навигатор (если доступен)
+            if [ "$TUI_TOOL" = "dialog" ]; then
+                local full_title="$title (навигатор)"
+                
+                # Пробуем использовать dselect с таймаутом для обнаружения проблем
+                result=$(dialog --stdout \
+                    --title "$full_title" \
+                    --dselect "$absolute_default" 25 70 \
+                    --no-shadow \
+                    2>&1)
+                
+                local dialog_exit=$?
+                
+                # Если dselect вернул ошибку, предлагаем альтернативу
+                if [ $dialog_exit -ne 0 ] || [ -z "$result" ]; then
+                    dialog_msgbox "Предупреждение" \
+                        "Файловый навигатор не сработал в вашей терминальной среде.\n\nПопробуйте выбрать путь вручную."
+                    result=$(dialog_inputbox "$title" \
+                        "Введите полный путь к папке:" "$absolute_default")
+                fi
+            else
+                # Для whiptail используем inputbox
+                result=$(dialog_inputbox "$title" \
+                    "Введите путь к папке:" "$absolute_default")
+            fi
+            ;;
+        2)
+            # Режим 2: Ручной ввод пути
+            result=$(dialog_inputbox "$title" \
+                "Введите полный путь к папке (можно использовать Tab для автодополнения в некоторых терминалах):" "$absolute_default")
+            ;;
+        3)
+            # Режим 3: Стандартные пути
+            result=$(select_standard_path "$title")
+            ;;
+        *)
+            # Отмена
+            echo "$default_path"
+            return
+            ;;
+    esac
+    
+    local dialog_exit=$?
+    
+    if [ $dialog_exit -eq 0 ] && [ -n "$result" ]; then
+        # Убеждаемся, что выбранная директория существует
+        if [ ! -d "$result" ]; then
+            # Если выбран файл, берем его директорию
+            if [ -f "$result" ]; then
+                result="$(dirname "$result")"
+            else
+                # Если путь не существует, предлагаем создать или выбрать другой
+                local create_choice
+                create_choice=$(dialog_menu "Папка не существует" \
+                    "Выбранная папка не существует:\n\n$result\n\nЧто сделать?" \
+                    "1" "Выбрать другой путь" \
+                    "2" "Ввести путь заново" \
+                    "3" "Использовать путь по умолчанию")
+                
+                case $create_choice in
+                    1|2)
+                        # Рекурсивный вызов
+                        select_directory "$title" "$default_path"
+                        return
+                        ;;
+                    3)
+                        echo "$default_path"
+                        return
+                        ;;
+                esac
+            fi
+        fi
+        
+        # Детальная проверка выбранной директории
+        validate_and_confirm_directory "$title" "$result" "$default_path"
+    else
+        # При отмене возвращаем исходный путь
+        echo "$default_path"
+    fi
+}
+
 # Запуск главного меню
 show_main_menu
