@@ -83,17 +83,34 @@ try {
 			if (strpos($entry, "d.fb2-009") !== false) {
 				$skipped_count++;
 			} else {
-				// Проверяем, что у нас есть достаточно элементов в массиве
-				if (count($fn) >= 3 && !empty($fn[1]) && !empty($fn[2])) {
+				// Парсим имя файла: ищем последние два числа (start_id и end_id)
+				// Для файлов типа "f.n-822261-822363" или "fb2-168103-172702"
+				$start_id = null;
+				$end_id = null;
+				
+				// Ищем числа в массиве (идем с конца)
+				for ($i = count($fn) - 1; $i >= 0; $i--) {
+					if (is_numeric($fn[$i])) {
+						if ($end_id === null) {
+							$end_id = $fn[$i];
+						} else if ($start_id === null) {
+							$start_id = $fn[$i];
+							break;
+						}
+					}
+				}
+				
+				// Если нашли оба числа, вставляем запись
+				if ($start_id !== null && $end_id !== null && is_numeric($start_id) && is_numeric($end_id)) {
 					$stmt = $dbh->prepare("INSERT INTO book_zip (filename, start_id, end_id, usr) VALUES (:fn, :start, :end, :usr)");
 					$stmt->bindParam(":fn", $entry);
-					$stmt->bindParam(":start", $fn[1]);
-					$stmt->bindParam(":end", $fn[2]);
+					$stmt->bindParam(":start", $start_id);
+					$stmt->bindParam(":end", $end_id);
 					$stmt->bindParam(":usr", $u);
 					$stmt->execute();
 					$processed_count++;
 				} else {
-					echo " (пропущен: неверный формат имени)";
+					echo " (пропущен: неверный формат имени, start_id=$start_id, end_id=$end_id)";
 					$skipped_count++;
 				}
 			}
@@ -104,13 +121,23 @@ try {
 	$dbh->commit();
 	closedir($handle);
 	
+	// Проверяем, что данные действительно записались в базу
+	$check_stmt = $dbh->prepare("SELECT COUNT(*) as cnt FROM book_zip");
+	$check_stmt->execute();
+	$row = $check_stmt->fetch(PDO::FETCH_ASSOC);
+	$db_count = $row['cnt'] ?? 0;
+	
 	echo "\nОбработано файлов: $processed_count\n";
 	if ($skipped_count > 0) {
 		echo "Пропущено файлов: $skipped_count\n";
 	}
+	echo "Записей в базе данных: $db_count\n";
 	
 	if ($processed_count === 0) {
 		echo "Предупреждение: Не найдено ZIP файлов для обработки\n";
+	} elseif ($db_count !== $processed_count) {
+		echo "ВНИМАНИЕ: Количество обработанных файлов ($processed_count) не совпадает с количеством записей в БД ($db_count)!\n";
+		error_log("Несоответствие: обработано $processed_count файлов, но в БД $db_count записей");
 	}
 	
 } catch (Exception $e) {
