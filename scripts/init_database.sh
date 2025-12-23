@@ -1,8 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 # init_database.sh - Автоматическая инициализация базы данных
 
 set -e
-set -o pipefail
 
 # Цвета для вывода
 GREEN='\033[0;32m'
@@ -17,20 +16,20 @@ FAILED_FILES=""
 
 # Функция логирования ошибок
 log_error() {
-    local message=$1
+    message=$1
     echo -e "${RED}✗ $message${NC}" | tee -a /var/log/flibusta_init.log 2>/dev/null || echo "$message"
     ERRORS_COUNT=$((ERRORS_COUNT + 1))
 }
 
 # Функция логирования успеха
 log_success() {
-    local message=$1
+    message=$1
     echo -e "${GREEN}✓ $message${NC}" | tee -a /var/log/flibusta_init.log 2>/dev/null || echo "$message"
 }
 
 # Функция логирования предупреждений
 log_warning() {
-    local message=$1
+    message=$1
     echo -e "${YELLOW}⚠ $message${NC}" | tee -a /var/log/flibusta_init.log 2>/dev/null || echo "$message"
 }
 
@@ -48,7 +47,8 @@ fi
 
 # Ожидание готовности PostgreSQL
 echo -e "${GREEN}Ожидание готовности PostgreSQL...${NC}"
-for i in {1..30}; do
+i=1
+while [ $i -le 30 ]; do
     if $COMPOSE_CMD exec -T postgres pg_isready -U flibusta -d flibusta > /dev/null 2>&1; then
         echo -e "${GREEN}✓ PostgreSQL готов${NC}"
         break
@@ -58,6 +58,7 @@ for i in {1..30}; do
         exit 1
     fi
     sleep 2
+    i=$((i + 1))
 done
 
 # Создание необходимых директорий
@@ -77,26 +78,9 @@ fi
 echo -e "${GREEN}Импорт SQL файлов...${NC}"
 
 # Список файлов для импорта в правильном порядке
-SQL_FILES=(
-    "lib.a.annotations_pics.sql"
-    "lib.b.annotations_pics.sql"
-    "lib.a.annotations.sql"
-    "lib.b.annotations.sql"
-    "lib.libavtorname.sql"
-    "lib.libavtor.sql"
-    "lib.libbook.sql"
-    "lib.libfilename.sql"
-    "lib.libgenrelist.sql"
-    "lib.libgenre.sql"
-    "lib.libjoinedbooks.sql"
-    "lib.librate.sql"
-    "lib.librecs.sql"
-    "lib.libseq.sql"
-    "lib.libtranslator.sql"
-    "lib.reviews.sql"
-)
+SQL_FILES="lib.a.annotations_pics.sql lib.b.annotations_pics.sql lib.a.annotations.sql lib.b.annotations.sql lib.libavtorname.sql lib.libavtor.sql lib.libbook.sql lib.libfilename.sql lib.libgenrelist.sql lib.libgenre.sql lib.libjoinedbooks.sql lib.librate.sql lib.librecs.sql lib.libseq.sql lib.libtranslator.sql lib.reviews.sql"
 
-for sql_file in "${SQL_FILES[@]}"; do
+for sql_file in $SQL_FILES; do
     if [ -f "/application/sql/$sql_file" ]; then
         log_success "Начало импорта $sql_file"
         
@@ -106,7 +90,7 @@ for sql_file in "${SQL_FILES[@]}"; do
                 log_success "Импорт $sql_file завершен"
                 IMPORTED_FILES=$((IMPORTED_FILES + 1))
             else
-                FAILED_FILES+="$sql_file "
+                FAILED_FILES="$FAILED_FILES$sql_file "
                 log_error "Ошибка импорта $sql_file (через app_topg)"
             fi
         else
@@ -115,7 +99,7 @@ for sql_file in "${SQL_FILES[@]}"; do
                 log_success "Импорт $sql_file завершен (через psql)"
                 IMPORTED_FILES=$((IMPORTED_FILES + 1))
             else
-                FAILED_FILES+="$sql_file "
+                FAILED_FILES="$FAILED_FILES$sql_file "
                 log_error "Ошибка импорта $sql_file (через psql)"
             fi
         fi
@@ -126,7 +110,7 @@ echo -e "${GREEN}Очистка базы данных...${NC}"
 if [ -f "/application/tools/cleanup_db.sql" ]; then
     # Использование SQL_CMD из dbinit.sh если доступен
     if [ -f "/application/tools/dbinit.sh" ]; then
-        source /application/tools/dbinit.sh
+        . /application/tools/dbinit.sh
         $SQL_CMD -f /application/tools/cleanup_db.sql > /dev/null 2>&1 || true
     else
         $COMPOSE_CMD exec -T postgres psql -U flibusta -d flibusta -f /application/tools/cleanup_db.sql > /dev/null 2>&1 || true
@@ -137,7 +121,7 @@ fi
 echo -e "${GREEN}Обновление индексов...${NC}"
 if [ -f "/application/tools/update_vectors.sql" ]; then
     if [ -f "/application/tools/dbinit.sh" ]; then
-        source /application/tools/dbinit.sh
+        . /application/tools/dbinit.sh
         $SQL_CMD -f /application/tools/update_vectors.sql > /dev/null 2>&1 || true
     else
         $COMPOSE_CMD exec -T postgres psql -U flibusta -d flibusta -f /application/tools/update_vectors.sql > /dev/null 2>&1 || true
@@ -159,7 +143,7 @@ echo -e "Импортировано файлов: $IMPORTED_FILES"
 if [ -n "$FAILED_FILES" ]; then
     echo -e "${RED}Файлы с ошибками:${NC}"
     echo "$FAILED_FILES"
-    ERROR_S_COUNT=$((ERRORS_COUNT + 1))
+    ERRORS_COUNT=$((ERRORS_COUNT + 1))
 else
     echo -e "${GREEN}✓ Все файлы импортированы без ошибок${NC}"
 fi
