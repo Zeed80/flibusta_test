@@ -83,12 +83,28 @@ try {
 			if (strpos($entry, "d.fb2-009") !== false) {
 				$skipped_count++;
 			} else {
-				// Парсим имя файла: используем простую логику старой версии
-				// После explode("-", $dt) числа находятся на позициях [1] и [2]
-				// Для файлов типа "f.n-822261-822363" или "fb2-168103-172702"
-				if (count($fn) >= 3 && is_numeric($fn[1]) && is_numeric($fn[2])) {
-					$start_id = $fn[1];
-					$end_id = $fn[2];
+				// Парсим имя файла: ищем последние два числа в массиве
+				// Для файлов типа:
+				// - "f.n-822261-822363" → ["f", "n", "822261", "822363"] → числа на [2] и [3]
+				// - "fb2-168103-172702" → ["fb2", "168103", "172702"] → числа на [1] и [2]
+				// - "f.fb2-558303-560513" → после замены "f.n-558303-560513" → ["f", "n", "558303", "560513"] → числа на [2] и [3]
+				$start_id = null;
+				$end_id = null;
+				
+				// Ищем последние два числа в массиве (идем с конца)
+				for ($i = count($fn) - 1; $i >= 0; $i--) {
+					if (is_numeric($fn[$i])) {
+						if ($end_id === null) {
+							$end_id = (int)$fn[$i];
+						} else if ($start_id === null) {
+							$start_id = (int)$fn[$i];
+							break;
+						}
+					}
+				}
+				
+				// Если нашли оба числа, вставляем запись
+				if ($start_id !== null && $end_id !== null && $start_id > 0 && $end_id > 0) {
 					$stmt = $dbh->prepare("INSERT INTO book_zip (filename, start_id, end_id, usr) VALUES (:fn, :start, :end, :usr)");
 					$stmt->bindParam(":fn", $entry);
 					$stmt->bindParam(":start", $start_id);
@@ -97,7 +113,7 @@ try {
 					$stmt->execute();
 					$processed_count++;
 				} else {
-					echo " (пропущен: неверный формат имени файла)";
+					echo " (пропущен: неверный формат имени файла, start_id=" . ($start_id ?? 'null') . ", end_id=" . ($end_id ?? 'null') . ")";
 					$skipped_count++;
 				}
 			}
