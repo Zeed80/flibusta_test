@@ -45,6 +45,9 @@ services:
             - '${FLIBUSTA_SQL_PATH:-./FlibustaSQL}:/application/sql'
             - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
             - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
+            - './scripts:/application/scripts'
+            - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
+            - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
         environment:
             - FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER:-flibusta}
             - FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME:-flibusta}
