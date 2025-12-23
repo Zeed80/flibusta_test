@@ -34,6 +34,8 @@ log_warning() {
     echo -e "${YELLOW}⚠ $message${NC}" | tee -a /var/log/flibusta_init.log 2>/dev/null || echo "$message"
 }
 
+echo -e "${GREEN}Инициализация базы данных...${NC}"
+
 # Определение команды docker-compose
 COMPOSE_CMD="docker-compose"
 if ! command -v docker-compose &> /dev/null; then
@@ -65,7 +67,6 @@ mkdir -p /application/sql/psql
 mkdir -p /application/cache/authors
 mkdir -p /application/cache/covers
 mkdir -p /application/cache/tmp
-mkdir -p /application/cache/opds
 
 # Распаковка sql.gz файлов
 echo -e "${GREEN}Распаковка SQL файлов...${NC}"
@@ -91,6 +92,7 @@ SQL_FILES=(
     "lib.libjoinedbooks.sql"
     "lib.librate.sql"
     "lib.librecs.sql"
+    "lib.libseqname.sql"
     "lib.libseq.sql"
     "lib.libtranslator.sql"
     "lib.reviews.sql"
@@ -119,6 +121,10 @@ for sql_file in "${SQL_FILES[@]}"; do
                 log_error "Ошибка импорта $sql_file (через psql)"
             fi
         fi
+    else
+        log_warning "Файл не найден: $sql_file"
+        FAILED_FILES+="$sql_file (отсутствует) "
+    fi
 done
 
 # Подчистка БД
@@ -148,7 +154,7 @@ fi
 echo -e "${GREEN}Создание индекса zip-файлов...${NC}"
 if [ -f "/application/tools/app_update_zip_list.php" ]; then
     php /application/tools/app_update_zip_list.php > /dev/null 2>&1 || \
-        $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php > /dev/null 2>&1 || true
+    $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php > /dev/null 2>&1 || true
 fi
 
 # Итоговый отчет об импорте
