@@ -281,6 +281,11 @@ start_containers() {
     
     log "${GREEN}✓ Контейнеры запущены${NC}"
     
+    # Установка прав на выполнение для скриптов в tools/
+    log "${BLUE}Установка прав на выполнение для скриптов...${NC}"
+    $compose_cmd exec -T php-fpm sh -c "chmod +x /application/tools/*.sh /application/tools/app_topg" 2>/dev/null || true
+    log "${GREEN}✓ Права на выполнение установлены${NC}"
+    
     # Ожидание готовности
     log "${BLUE}Ожидание готовности сервисов...${NC}"
     sleep 10

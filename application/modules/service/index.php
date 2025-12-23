@@ -126,6 +126,27 @@ if (isset($_GET['empty'])) {
 
 // Безопасный запуск импорта SQL с использованием PHP proc_open
 function run_background_import($script_path) {
+	// Проверка существования файла скрипта
+	if (!file_exists($script_path)) {
+		$error_msg = "Ошибка: Скрипт не найден: $script_path";
+		file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+		error_log($error_msg);
+		return false;
+	}
+	
+	// Проверка прав на выполнение
+	if (!is_executable($script_path)) {
+		$error_msg = "Ошибка: Скрипт не имеет прав на выполнение: $script_path";
+		file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+		error_log($error_msg);
+		
+		// Попытка установить права на выполнение
+		@chmod($script_path, 0755);
+		if (!is_executable($script_path)) {
+			return false;
+		}
+	}
+	
 	$descriptorspec = array(
 		0 => array("pipe", "r"),  // stdin
 		1 => array("pipe", "w"),  // stdout
@@ -135,13 +156,33 @@ function run_background_import($script_path) {
 	$process = proc_open($script_path, $descriptorspec, $pipes);
 	
 	if (is_resource($process)) {
+		// Читаем вывод скрипта для логирования
+		$output = stream_get_contents($pipes[1]);
+		$errors = stream_get_contents($pipes[2]);
+		
 		fclose($pipes[0]);  // Не пишем в stdin
 		fclose($pipes[1]);
 		fclose($pipes[2]);
-		proc_close($process);
+		
+		$exit_code = proc_close($process);
+		
+		// Логируем результат
+		if ($exit_code !== 0) {
+			$error_msg = "Ошибка выполнения скрипта $script_path. Код выхода: $exit_code";
+			if (!empty($errors)) {
+				$error_msg .= "\nОшибки:\n$errors";
+			}
+			file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+			error_log($error_msg);
+			return false;
+		}
+		
 		return true;
 	}
 	
+	$error_msg = "Ошибка: Не удалось запустить процесс для скрипта: $script_path";
+	file_put_contents(FLIBUSTA_SQL_STATUS, $error_msg);
+	error_log($error_msg);
 	return false;
 }
 
@@ -167,6 +208,37 @@ if ($status_import) {
 } else {
 	$status = '';
 }
+
+// Проверка доступности скриптов
+$script_errors = array();
+if (!file_exists(FLIBUSTA_SCRIPT_IMPORT)) {
+	$script_errors[] = "Скрипт импорта не найден: " . FLIBUSTA_SCRIPT_IMPORT;
+} elseif (!is_executable(FLIBUSTA_SCRIPT_IMPORT)) {
+	$script_errors[] = "Скрипт импорта не имеет прав на выполнение";
+}
+
+if (!file_exists(FLIBUSTA_SCRIPT_REINDEX)) {
+	$script_errors[] = "Скрипт реиндексации не найден: " . FLIBUSTA_SCRIPT_REINDEX;
+}
+
+if (!file_exists('/application/tools/app_topg')) {
+	$script_errors[] = "Скрипт конвертации SQL не найден: /application/tools/app_topg";
+} elseif (!is_executable('/application/tools/app_topg')) {
+	$script_errors[] = "Скрипт конвертации SQL не имеет прав на выполнение";
+}
+
+// Вывод предупреждений о скриптах
+if (!empty($script_errors)) {
+	echo "<div class='alert alert-danger' role='alert'>";
+	echo "<strong>⚠️ Обнаружены проблемы со скриптами:</strong><br>";
+	foreach ($script_errors as $error) {
+		echo "• " . htmlspecialchars($error) . "<br>";
+	}
+	echo "<br><small>Убедитесь, что все скрипты в /application/tools/ имеют права на выполнение.<br>";
+	echo "Выполните: <code>chmod +x /application/tools/*.sh /application/tools/app_topg</code></small>";
+	echo "</div>";
+}
+
 echo "<div class='d-flex justify-content-between'>";
 echo "<a class='btn btn-primary m-1 $status' href='?import=sql'>Обновить базу</a> ";
 echo "<a class='btn btn-warning m-1' href='?empty=cache'>Очистить кэш</a> ";
