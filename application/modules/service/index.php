@@ -367,6 +367,15 @@ if (!$status_import) {
 			}
 		}
 		
+		// Дополнительно устанавливаем права рекурсивно для sql директории
+		// Это важно для того, чтобы Python скрипт мог записывать файлы в psql поддиректорию
+		if (is_dir(FLIBUSTA_SQL_DIR)) {
+			@chmod(FLIBUSTA_SQL_DIR, 0777);
+			if (is_dir(FLIBUSTA_SQL_DIR . '/psql')) {
+				@chmod(FLIBUSTA_SQL_DIR . '/psql', 0777);
+			}
+		}
+		
 		// Безопасный запуск импорта SQL
 		if (function_exists('run_background_import')) {
 			$result = run_background_import(FLIBUSTA_SCRIPT_IMPORT);

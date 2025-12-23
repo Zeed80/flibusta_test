@@ -48,13 +48,27 @@ mkdir -p /application/cache/authors
 mkdir -p /application/cache/covers
 mkdir -p /application/cache/tmp
 
+# Устанавливаем права на запись для директорий
+# Важно: устанавливаем права для всей директории sql и её поддиректорий
+chmod -R 777 /application/sql 2>/dev/null || true
+chmod -R 777 /application/cache 2>/dev/null || true
+
+# Дополнительно убеждаемся, что psql директория существует и имеет права
+mkdir -p /application/sql/psql
+chmod 777 /application/sql/psql 2>/dev/null || true
+
 # Создаем файл статуса импорта для PHP проверки
 # Используем cache директорию, так как там есть права на запись
 mkdir -p /application/cache
 echo "importing" > /application/cache/sql_status
 
 # Распаковка sql.gz файлов
-safe_execute "Распаковка SQL.gz файлов" "gzip -f -d /application/sql/*.gz 2>/dev/null" 0
+# Проверяем наличие .gz файлов перед распаковкой
+if ls /application/sql/*.gz 1> /dev/null 2>&1; then
+    safe_execute "Распаковка SQL.gz файлов" "cd /application/sql && for f in *.gz; do gzip -f -d \"\$f\" 2>/dev/null || true; done" 0
+else
+    echo -e "${YELLOW}⚠ Файлы .gz не найдены, пропускаем распаковку${NC}" | tee -a /application/cache/sql_status
+fi
 
 # Импорт каждого SQL файла
 echo ""
