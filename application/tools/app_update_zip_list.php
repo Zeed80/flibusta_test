@@ -88,12 +88,12 @@ try {
 		$dbh->exec("CREATE INDEX idx_book_zip_start_end ON book_zip(start_id, end_id)");
 		$dbh->exec("CREATE INDEX idx_book_zip_usr ON book_zip(usr)");
 	} else {
-		// Проверяем наличие колонок file_size, file_count и is_valid и добавляем их при необходимости
+		// Проверяем наличие колонок file_size, file_count, is_valid и checked_at и добавляем их при необходимости
 		$columns_check = $dbh->query("
 			SELECT column_name 
 			FROM information_schema.columns 
 			WHERE table_name = 'book_zip' 
-			AND column_name IN ('file_size', 'file_count', 'is_valid')
+			AND column_name IN ('file_size', 'file_count', 'is_valid', 'checked_at', 'updated_at', 'created_at')
 		")->fetchAll(PDO::FETCH_COLUMN);
 		
 		if (!in_array('file_size', $columns_check)) {
@@ -109,6 +109,21 @@ try {
 		if (!in_array('is_valid', $columns_check)) {
 			echo log_message(LOG_INFO, "Добавление колонки is_valid в таблицу book_zip...\n");
 			$dbh->exec("ALTER TABLE book_zip ADD COLUMN is_valid BOOLEAN DEFAULT TRUE");
+		}
+		
+		if (!in_array('checked_at', $columns_check)) {
+			echo log_message(LOG_INFO, "Добавление колонки checked_at в таблицу book_zip...\n");
+			$dbh->exec("ALTER TABLE book_zip ADD COLUMN checked_at TIMESTAMP");
+		}
+		
+		if (!in_array('updated_at', $columns_check)) {
+			echo log_message(LOG_INFO, "Добавление колонки updated_at в таблицу book_zip...\n");
+			$dbh->exec("ALTER TABLE book_zip ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+		}
+		
+		if (!in_array('created_at', $columns_check)) {
+			echo log_message(LOG_INFO, "Добавление колонки created_at в таблицу book_zip...\n");
+			$dbh->exec("ALTER TABLE book_zip ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
 		}
 	}
 
