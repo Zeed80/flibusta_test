@@ -88,12 +88,12 @@ try {
 		$dbh->exec("CREATE INDEX idx_book_zip_start_end ON book_zip(start_id, end_id)");
 		$dbh->exec("CREATE INDEX idx_book_zip_usr ON book_zip(usr)");
 	} else {
-		// Проверяем наличие колонок file_size и file_count и добавляем их при необходимости
+		// Проверяем наличие колонок file_size, file_count и is_valid и добавляем их при необходимости
 		$columns_check = $dbh->query("
 			SELECT column_name 
 			FROM information_schema.columns 
 			WHERE table_name = 'book_zip' 
-			AND column_name IN ('file_size', 'file_count')
+			AND column_name IN ('file_size', 'file_count', 'is_valid')
 		")->fetchAll(PDO::FETCH_COLUMN);
 		
 		if (!in_array('file_size', $columns_check)) {

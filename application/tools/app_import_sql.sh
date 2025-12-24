@@ -66,12 +66,17 @@ echo "importing" > /application/cache/sql_status
 # Проверяем наличие .gz файлов перед распаковкой
 if ls /application/sql/*.gz 1> /dev/null 2>&1; then
     echo -e "${YELLOW}Распаковка SQL.gz файлов...${NC}"
+    
+    # Сначала устанавливаем права на запись для всех .gz файлов
     cd /application/sql
+    chmod 666 *.gz 2>/dev/null || true
+    
     # Распаковываем каждый файл индивидуально с подробным выводом
     for gzfile in *.gz; do
         if [ -f "$gzfile" ]; then
             echo "Распаковка: $gzfile"
-            gzip -d -f "$gzfile" 2>&1 || {
+            # Используем gunzip вместо gzip -d для лучшей совместимости
+            gunzip -f -k "$gzfile" 2>&1 || {
                 echo -e "${RED}Ошибка при распаковке $gzfile${NC}" | tee -a /application/cache/sql_status
             }
         fi
