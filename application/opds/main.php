@@ -1,8 +1,32 @@
 <?php
+// Инициализируем кэш OPDS
+$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
+
+// Создаем ключ кэша для главной страницы
+$cacheKey = 'opds_main_' . OPDSVersion::detect();
+
+// Проверяем кэш
+$cachedContent = $opdsCache->get($cacheKey);
+if ($cachedContent !== null) {
+    // Кэш действителен, отправляем с заголовками кэширования
+    $etag = $opdsCache->generateETag($cachedContent);
+    $opdsCache->checkETag($etag);
+    $opdsCache->setCacheHeaders($etag);
+    echo $cachedContent;
+    exit;
+}
+
+// Если кэша нет, генерируем фид
 header('Content-Type: application/atom+xml; charset=utf-8');
 
 // Создаем фид с автоматическим определением версии
 $feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
+
+// Создаем фид с учетом версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
+
 $feed->setId('tag:root');
 $feed->setTitle('Домашняя библиотека');
 $feed->setUpdated($cdt);
@@ -10,7 +34,7 @@ $feed->setIcon($webroot . '/favicon.ico');
 
 // Добавляем ссылки поиска
 $feed->addLink(new OPDSLink(
-    $webroot . '/opds-opensearch.xml.php',
+    $webroot . '/opds/opensearch.xml.php',
     'search',
     'application/opensearchdescription+xml'
 ));
@@ -18,19 +42,19 @@ $feed->addLink(new OPDSLink(
 $feed->addLink(new OPDSLink(
     $webroot . '/opds/search?q={searchTerms}',
     'search',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 
 $feed->addLink(new OPDSLink(
     $webroot . '/opds/',
     'start',
-    OPDSVersion::getProfile($feed->getVersion(), 'navigation')
+    OPDSVersion::getProfile($version, 'navigation')
 ));
 
 $feed->addLink(new OPDSLink(
     $webroot . '/opds/',
     'self',
-    OPDSVersion::getProfile($feed->getVersion(), 'navigation')
+    OPDSVersion::getProfile($version, 'navigation')
 ));
 
 // Новинки
@@ -42,12 +66,12 @@ $newEntry->setContent('Последние поступления в библио
 $newEntry->addLink(new OPDSLink(
     $webroot . '/opds/list/',
     'http://opds-spec.org/sort/new',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 $newEntry->addLink(new OPDSLink(
     $webroot . '/opds/list/',
     'subsection',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 $feed->addEntry($newEntry);
 
@@ -60,7 +84,7 @@ $shelfEntry->setContent('Избранное', 'text');
 $shelfEntry->addLink(new OPDSLink(
     $webroot . '/opds/favs/',
     'subsection',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 $feed->addEntry($shelfEntry);
 
@@ -73,7 +97,7 @@ $genreEntry->setContent('Поиск книг по жанрам', 'text');
 $genreEntry->addLink(new OPDSLink(
     $webroot . '/opds/genres',
     'subsection',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 $feed->addEntry($genreEntry);
 
@@ -86,7 +110,7 @@ $authorsEntry->setContent('Поиск книг по авторам', 'text');
 $authorsEntry->addLink(new OPDSLink(
     $webroot . '/opds/authorsindex',
     'subsection',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 $feed->addEntry($authorsEntry);
 
@@ -99,9 +123,18 @@ $sequencesEntry->setContent('Поиск книг по сериям', 'text');
 $sequencesEntry->addLink(new OPDSLink(
     $webroot . '/opds/sequencesindex',
     'subsection',
-    OPDSVersion::getProfile($feed->getVersion(), 'acquisition')
+    OPDSVersion::getProfile($version, 'acquisition')
 ));
 $feed->addEntry($sequencesEntry);
 
-echo $feed->render();
+// Рендерим фид
+$content = $feed->render();
+
+// Сохраняем в кэш
+$opdsCache->set($cacheKey, $content);
+
+// Устанавливаем заголовки кэширования и отправляем ответ
+$etag = $opdsCache->generateETag($content);
+$opdsCache->setCacheHeaders($etag);
+echo $content;
 ?>

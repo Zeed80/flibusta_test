@@ -1,0 +1,52 @@
+# Конфигурация Prometheus для мониторинга Flibusta
+
+global:
+  scrape_interval: 15s  # Интервал сбора метрик
+  evaluation_interval: 15s  # Интервал вычисления метрик
+  external_labels:
+    monitor: 'flibusta-prod'
+    environment: 'production'
+
+# Правила алертов
+rule_files:
+  - '/etc/prometheus/alerts/*.yml'
+
+scrape_configs:
+  # Метрики самого Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - 'localhost:9090'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Метрики Flibusta через Node Exporter (если будет установлен)
+  - job_name: 'flibusta-node'
+    static_configs:
+      - targets:
+          - 'php-fpm:9100'  # Node exporter должен быть запущен в php-fpm контейнере
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Метрики PostgreSQL через node_exporter pgsql (если будет настроен)
+  - job_name: 'flibusta-postgres'
+    static_configs:
+      - targets:
+          - 'postgres:9187'
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Метрики Nginx через nginx-prometheus-exporter (если будет настроен)
+  - job_name: 'flibusta-nginx'
+    static_configs:
+      - targets:
+          - 'webserver:9113'
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+# Alertmanager конфигурация (если будет использоваться)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'

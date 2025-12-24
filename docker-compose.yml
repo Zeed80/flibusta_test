@@ -17,6 +17,20 @@ services:
             timeout: 5s
             retries: 5
             start_period: 30s
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    cpus: '2'
+                    memory: 4G
+                reservations:
+                    cpus: '1'
+                    memory: 2G
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
 
     webserver:
         image: 'nginx:1.25-alpine'
@@ -31,6 +45,20 @@ services:
         depends_on:
             php-fpm:
                 condition: service_healthy
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    cpus: '1'
+                    memory: 512M
+                reservations:
+                    cpus: '0.5'
+                    memory: 256M
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
 
     php-fpm:
         build: 
@@ -46,8 +74,6 @@ services:
             - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
             - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
             - './scripts:/application/scripts'
-            - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
-            - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
         environment:
             - FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER:-flibusta}
             - FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME:-flibusta}
@@ -66,10 +92,98 @@ services:
             timeout: 10s
             retries: 3
             start_period: 40s
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    cpus: '2'
+                    memory: 2G
+                reservations:
+                    cpus: '1'
+                    memory: 1G
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+
+    # Сервис мониторинга для Prometheus
+    monitoring:
+        image: 'prom/prometheus:v2.45.0'
+        working_dir: /application
+        volumes:
+            - './application:/application'
+            - './configs/prometheus:/etc/prometheus'
+        command:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.console.libraries=/etc/prometheus/console_libraries'
+            - '--web.console.templates=/etc/prometheus/consoles'
+            - '--storage.tsdb.retention.time=15d'
+        ports:
+            - '${FLIBUSTA_PROMETHEUS_PORT:-9090}:9090'
+        restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 512M
+                reservations:
+                    cpus: '0.25'
+                    memory: 256M
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+
+    # Сервис бэкапов (запускается вручную или по расписанию)
+    backup:
+        build: 
+            context: ./phpdocker/php-fpm
+            args:
+                PHP_VERSION: ${FLIBUSTA_PHP_VERSION:-8.2}
+        working_dir: /application
+        volumes:
+            - './application:/application'
+            - './backup:/backup'
+            - './scripts:/application/scripts'
+            - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
+            - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
+        environment:
+            - FLIBUSTA_DBTYPE=${FLIBUSTA_DBTYPE:-postgres}
+            - FLIBUSTA_DBHOST=${FLIBUSTA_DBHOST:-postgres}
+            - FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER:-flibusta}
+            - FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME:-flibusta}
+            - FLIBUSTA_DBPASSWORD_FILE=/run/secrets/FLIBUSTA_PWD
+            - FLIBUSTA_BACKUP_DIR=/backup
+            - FLIBUSTA_BACKUP_RETENTION=${FLIBUSTA_BACKUP_RETENTION:-30}
+        depends_on:
+            postgres:
+                condition: service_healthy
+        restart: "no"
+        deploy:
+            resources:
+                limits:
+                    cpus: '1'
+                    memory: 1G
+                reservations:
+                    cpus: '0.5'
+                    memory: 512M
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+        # Профиль для запуска только по требованию
+        profiles:
+            - manual
 
 
 volumes:
     db-data:
+    backup:
+    configs-prometheus:
 secrets:
     FLIBUSTA_PWD:
         file: ./secrets/flibusta_pwd.txt

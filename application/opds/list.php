@@ -1,8 +1,44 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
 
+// Инициализируем кэш OPDS
+$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
+
+// Получаем параметры фильтрации для кэша
+$cacheParams = [
+    'genre_id' => isset($_GET['genre_id']) ? intval($_GET['genre_id']) : null,
+    'seq_id' => isset($_GET['seq_id']) ? intval($_GET['seq_id']) : null,
+    'author_id' => isset($_GET['author_id']) ? intval($_GET['author_id']) : null,
+    'display_type' => isset($_GET['display_type']) ? $_GET['display_type'] : null,
+    'lang' => isset($_GET['lang']) ? $_GET['lang'] : null,
+    'format' => isset($_GET['format']) ? $_GET['format'] : null,
+    'page' => isset($_GET['page']) ? (int)$_GET['page'] : 1
+];
+
+// Создаем ключ кэша
+$cacheKey = 'opds_list_' . $opdsCache->getCacheKey($cacheParams);
+
+// Проверяем кэш
+$cachedContent = $opdsCache->get($cacheKey);
+if ($cachedContent !== null) {
+    // Кэш действителен, отправляем с заголовками кэширования
+    $etag = $opdsCache->generateETag($cachedContent);
+    $opdsCache->checkETag($etag);
+    $opdsCache->setCacheHeaders($etag);
+    echo $cachedContent;
+    exit;
+}
+
+// Если кэша нет или устарел, генерируем фид
 // Создаем фид с автоматическим определением версии
 $feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
+
+// Добавляем версию в параметры кэша
+$cacheParams['version'] = $version;
+
+// Создаем фид с учетом версии
+$feed = OPDSFeedFactory::create(); // Пересоздаем с версией
 $version = $feed->getVersion();
 
 // Определяем параметры фильтрации
@@ -27,7 +63,7 @@ if (isset($_GET['genre_id'])) {
 	$stmt->bindParam(":gid", $gid);
 	$stmt->execute();
 	$g = $stmt->fetch();
-	$title = "в $g->genremeta: $g->genredesc";
+	$title = "в жанре $g->genremeta: $g->genredesc";
 }
 
 if (isset($_GET['seq_id'])) {
@@ -68,8 +104,8 @@ if (isset($_GET['author_id'])) {
 	$stmt->bindParam(":aid", $aid);
 	$stmt->execute();
 	$a = $stmt->fetch();
-	$title = ($a->nickname !='')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
-:"$a->firstname  $a->middlename $a->lastname";
+	$title = ($a->nickname != '')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
+		:"$a->firstname  $a->middlename $a->lastname";
 }
 
 // Подсчет общего количества записей
@@ -96,7 +132,7 @@ $feed->setIcon($webroot . '/favicon.ico');
 
 // Добавляем ссылки
 $feed->addLink(new OPDSLink(
-	$webroot . '/opds-opensearch.xml.php',
+	$webroot . '/opds/opensearch.xml.php',
 	'search',
 	'application/opensearchdescription+xml'
 ));
@@ -131,7 +167,7 @@ if ($version === OPDSVersion::VERSION_1_2) {
 	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY lang LIMIT 10");
 	while ($lang = $langs->fetch()) {
 		$langParams = array_merge($params, ['lang' => $lang->lang, 'page' => 1]);
-		$langFacet->addFacet(
+		$langFacet->addFacetValue(
 			$lang->lang,
 			$lang->lang,
 			$baseUrl . '?' . http_build_query($langParams),
@@ -148,7 +184,7 @@ if ($version === OPDSVersion::VERSION_1_2) {
 	$formats = $dbh->query("SELECT DISTINCT filetype, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND filetype != '' GROUP BY filetype ORDER BY filetype");
 	while ($format = $formats->fetch()) {
 		$formatParams = array_merge($params, ['format' => $format->filetype, 'page' => 1]);
-		$formatFacet->addFacet(
+		$formatFacet->addFacetValue(
 			$format->filetype,
 			strtoupper($format->filetype),
 			$baseUrl . '?' . http_build_query($formatParams),
@@ -166,7 +202,7 @@ $books = $dbh->prepare("SELECT b.*
 	FROM libbook b
 	$join
 	WHERE
-	$filter
+		$filter
 	ORDER BY $orderby
 	LIMIT :limit OFFSET :offset");
 
@@ -188,5 +224,14 @@ while ($b = $books->fetch()) {
 	$feed->addEntry($entry);
 }
 
-echo $feed->render();
+// Рендерим фид
+$content = $feed->render();
+
+// Сохраняем в кэш
+$opdsCache->set($cacheKey, $content);
+
+// Устанавливаем заголовки кэширования и отправляем ответ
+$etag = $opdsCache->generateETag($content);
+$opdsCache->setCacheHeaders($etag);
+echo $content;
 ?>

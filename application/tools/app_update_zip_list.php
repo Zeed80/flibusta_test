@@ -1,18 +1,33 @@
 <?php
+/**
+ * Улучшенный скрипт индексации ZIP архивов для продакшен
+ * Включает:
+ * - Валидацию ZIP файлов перед индексацией
+ * - Инкрементальную индексацию (вместо полного TRUNCATE)
+ * - Детальное логирование с временными метками
+ * - Обработку ошибок и восстановление
+ */
+
 // Константы путей (вынесены для удобства конфигурации)
 if (!defined('FLIBUSTA_BOOKS_DIR')) {
 	define('FLIBUSTA_BOOKS_DIR', '/application/flibusta');
 }
 
+// Константы логирования
+define('LOG_INFO', 'INFO');
+define('LOG_WARNING', 'WARNING');
+define('LOG_ERROR', 'ERROR');
+
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
+ini_set('max_execution_time', 7200); // 2 часа для больших библиотек
+ini_set('memory_limit', '512M');
 
 // Используем абсолютный путь для надежности
 $dbinit_path = '/application/dbinit.php';
 if (!file_exists($dbinit_path)) {
-	$error = "Ошибка: Файл dbinit.php не найден: $dbinit_path";
-	error_log($error);
+	$error = log_message(LOG_ERROR, "Файл dbinit.php не найден: $dbinit_path");
 	echo $error . "\n";
 	exit(1);
 }
@@ -20,47 +35,83 @@ include($dbinit_path);
 
 // Проверяем подключение к базе данных
 if (!isset($dbh) || $dbh === null) {
-	$error = "Ошибка: Не удалось подключиться к базе данных";
-	error_log($error);
+	$error = log_message(LOG_ERROR, "Не удалось подключиться к базе данных");
 	echo $error . "\n";
 	exit(1);
 }
 
 // Проверяем существование директории
 if (!is_dir(FLIBUSTA_BOOKS_DIR)) {
-	$error = "Ошибка: Директория не существует: " . FLIBUSTA_BOOKS_DIR;
-	error_log($error);
+	$error = log_message(LOG_ERROR, "Директория не существует: " . FLIBUSTA_BOOKS_DIR);
 	echo $error . "\n";
 	exit(1);
 }
 
 // Проверяем права на чтение директории
 if (!is_readable(FLIBUSTA_BOOKS_DIR)) {
-	$error = "Ошибка: Нет прав на чтение директории: " . FLIBUSTA_BOOKS_DIR;
-	error_log($error);
+	$error = log_message(LOG_ERROR, "Нет прав на чтение директории: " . FLIBUSTA_BOOKS_DIR);
 	echo $error . "\n";
 	exit(1);
 }
 
-echo "Начало сканирования ZIP файлов в директории: " . FLIBUSTA_BOOKS_DIR . "\n";
+$start_time = microtime(true);
+echo log_message(LOG_INFO, "Начало сканирования ZIP файлов в директории: " . FLIBUSTA_BOOKS_DIR);
 
-// Открываем директорию с константой
+// Открываем директорию
 $handle = @opendir(FLIBUSTA_BOOKS_DIR);
 if (!$handle) {
-	$error = "Ошибка: Не удалось открыть директорию: " . FLIBUSTA_BOOKS_DIR;
-	error_log($error);
+	$error = log_message(LOG_ERROR, "Не удалось открыть директорию: " . FLIBUSTA_BOOKS_DIR);
 	echo $error . "\n";
 	exit(1);
 }
 
 try {
-	$stmt = $dbh->prepare("TRUNCATE book_zip;");
-	$stmt->execute();
-	echo "Таблица book_zip очищена\n";
+	// Проверяем существование таблицы book_zip и создаем если нужно
+	$table_check = $dbh->query("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'book_zip')");
+	if (!$table_check || !$table_check->fetchColumn()) {
+		echo log_message(LOG_INFO, "Создание таблицы book_zip...\n");
+		$dbh->exec("
+			CREATE TABLE book_zip (
+				id SERIAL PRIMARY KEY,
+				filename VARCHAR(64) NOT NULL UNIQUE,
+				start_id BIGINT NOT NULL,
+				end_id BIGINT NOT NULL,
+				usr BIGINT DEFAULT 0 NOT NULL,
+				file_size BIGINT DEFAULT 0,
+				file_count INTEGER DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				checked_at TIMESTAMP,
+				is_valid BOOLEAN DEFAULT TRUE
+			)
+		");
+		$dbh->exec("CREATE INDEX idx_book_zip_start_end ON book_zip(start_id, end_id)");
+		$dbh->exec("CREATE INDEX idx_book_zip_usr ON book_zip(usr)");
+	}
+
+	// Получаем существующие записи для сравнения
+	$existing_files = $dbh->query("SELECT filename, file_size, checked_at FROM book_zip")->fetchAll(PDO::FETCH_ASSOC);
+	$existing_map = [];
+	foreach ($existing_files as $file) {
+		$existing_map[$file['filename']] = $file;
+	}
+	
+	echo log_message(LOG_INFO, "Текущее количество индексированных файлов: " . count($existing_map) . "\n");
 
 	$dbh->beginTransaction();
+	
 	$processed_count = 0;
+	$updated_count = 0;
 	$skipped_count = 0;
+	$invalid_count = 0;
+	$new_count = 0;
+	
+	$validation_stats = [
+		'opened' => 0,
+		'failed_open' => 0,
+		'empty' => 0,
+		'valid' => 0
+	];
 
 	while (false !== ($entry = readdir($handle))) {
 		// Пропускаем . и ..
@@ -68,11 +119,16 @@ try {
 			continue;
 		}
 		
+		// Проверяем, что это ZIP файл и не часть
 		if (strpos($entry, "-") !== false && strpos($entry, ".zip") !== false && substr($entry, -9) !== ".zip.part") {
+			$full_path = FLIBUSTA_BOOKS_DIR . '/' . $entry;
+			$file_mtime = filemtime($full_path);
+			
+			echo "[$entry]";
+			
 			$dt = str_replace(".zip", "", $entry);
 			$dt = str_replace("f.n.", "f.n-", $dt);
 			$dt = str_replace("f.fb2.", "f.n-", $dt);
-			echo "[$dt]";
 			
 			$fn = explode("-", $dt);
 			$u = 1;
@@ -80,76 +136,263 @@ try {
 				$u = 0;
 			}
 			
+			// Пропускаем проблемные файлы
 			if (strpos($entry, "d.fb2-009") !== false) {
+				echo " (пропущен: известный проблемный файл)\n";
 				$skipped_count++;
-			} else {
-				// Парсим имя файла: ищем последние два числа в массиве
-				// Для файлов типа:
-				// - "f.n-822261-822363" → ["f", "n", "822261", "822363"] → числа на [2] и [3]
-				// - "fb2-168103-172702" → ["fb2", "168103", "172702"] → числа на [1] и [2]
-				// - "f.fb2-558303-560513" → после замены "f.n-558303-560513" → ["f", "n", "558303", "560513"] → числа на [2] и [3]
-				$start_id = null;
-				$end_id = null;
-				
-				// Ищем последние два числа в массиве (идем с конца)
-				for ($i = count($fn) - 1; $i >= 0; $i--) {
-					if (is_numeric($fn[$i])) {
-						if ($end_id === null) {
-							$end_id = (int)$fn[$i];
-						} else if ($start_id === null) {
-							$start_id = (int)$fn[$i];
-							break;
-						}
+				continue;
+			}
+			
+			// Парсим имя файла: ищем последние два числа в массиве
+			$start_id = null;
+			$end_id = null;
+			
+			// Ищем последние два числа в массиве (идем с конца)
+			for ($i = count($fn) - 1; $i >= 0; $i--) {
+				if (is_numeric($fn[$i])) {
+					if ($end_id === null) {
+						$end_id = (int)$fn[$i];
+					} else if ($start_id === null) {
+						$start_id = (int)$fn[$i];
+						break;
 					}
 				}
-				
-				// Если нашли оба числа, вставляем запись
-				if ($start_id !== null && $end_id !== null && $start_id > 0 && $end_id > 0) {
-					$stmt = $dbh->prepare("INSERT INTO book_zip (filename, start_id, end_id, usr) VALUES (:fn, :start, :end, :usr)");
-					$stmt->bindParam(":fn", $entry);
-					$stmt->bindParam(":start", $start_id);
-					$stmt->bindParam(":end", $end_id);
-					$stmt->bindParam(":usr", $u);
-					$stmt->execute();
-					$processed_count++;
-				} else {
-					echo " (пропущен: неверный формат имени файла, start_id=" . ($start_id ?? 'null') . ", end_id=" . ($end_id ?? 'null') . ")";
-					$skipped_count++;
-				}
 			}
+			
+			// Проверяем валидность диапазона ID
+			if ($start_id === null || $end_id === null || $start_id <= 0 || $end_id <= 0) {
+				echo " (пропущен: неверный формат имени файла, start_id=" . ($start_id ?? 'null') . ", end_id=" . ($end_id ?? 'null') . ")\n";
+				log_message(LOG_WARNING, "Неверный формат имени файла: $entry - start_id=" . ($start_id ?? 'null') . ", end_id=" . ($end_id ?? 'null'));
+				$skipped_count++;
+				continue;
+			}
+			
+			if ($start_id > $end_id) {
+				echo " (пропущен: start_id > end_id)\n";
+				log_message(LOG_WARNING, "Неверный диапазон ID в файле: $entry - start_id=$start_id, end_id=$end_id");
+				$skipped_count++;
+				continue;
+			}
+			
+			// Валидация ZIP файла
+			$file_size = filesize($full_path);
+			$file_count = 0;
+			$is_valid = true;
+			$validation_error = '';
+			
+			// Проверяем, нужно ли повторно валидировать файл
+			$needs_validation = true;
+			if (isset($existing_map[$entry])) {
+				$existing_file = $existing_map[$entry];
+				// Повторная валидация каждые 7 дней или если размер изменился
+				$needs_validation = ($existing_file['file_size'] != $file_size) || 
+					(!$existing_file['checked_at'] || (strtotime($existing_file['checked_at']) < time() - 7 * 24 * 3600));
+			}
+			
+			if ($needs_validation) {
+				$zip = new ZipArchive();
+				$open_result = $zip->open($full_path);
+				
+				if ($open_result !== TRUE) {
+					$is_valid = false;
+					$validation_error = "Код ошибки ZipArchive: $open_result";
+					$validation_stats['failed_open']++;
+					echo " [ОШИБКА: $validation_error]";
+					log_message(LOG_ERROR, "Невозможно открыть ZIP: $entry - $validation_error");
+				} else {
+					$validation_stats['opened']++;
+					$file_count = $zip->numFiles;
+					
+					if ($file_count == 0) {
+						$is_valid = false;
+						$validation_error = "Пустой архив";
+						$validation_stats['empty']++;
+						echo " [ОШИБКА: Пустой ZIP архив]";
+						log_message(LOG_WARNING, "Пустой ZIP архив: $entry");
+					} else {
+						$validation_stats['valid']++;
+						echo " [ОК: $file_count файлов, " . formatBytes($file_size) . "]";
+					}
+					
+					$zip->close();
+				}
+			} else {
+				// Используем существующие данные валидации
+				$is_valid = true;
+				$file_count = $existing_map[$entry]['file_count'] ?? 0;
+				$validation_stats['opened']++; // Считаем как уже проверенный
+				echo " [кэш валидации: $file_count файлов]";
+			}
+			
+			// Проверяем валидность перед вставкой
+			if (!$is_valid) {
+				// Обновляем запись как недействительную
+				if (isset($existing_map[$entry])) {
+					$stmt = $dbh->prepare("
+						UPDATE book_zip 
+						SET is_valid = FALSE, checked_at = CURRENT_TIMESTAMP
+						WHERE filename = :fn
+					");
+					$stmt->execute([":fn" => $entry]);
+				}
+				$invalid_count++;
+				echo " (помечен как недействительный)\n";
+				continue;
+			}
+			
+			// Вставляем или обновляем запись (инкрементальная индексация)
+			$stmt = $dbh->prepare("
+				INSERT INTO book_zip (filename, start_id, end_id, usr, file_size, file_count, created_at, updated_at, checked_at, is_valid)
+				VALUES (:fn, :start, :end, :usr, :size, :count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, TRUE)
+				ON CONFLICT (filename) 
+				DO UPDATE SET 
+					start_id = EXCLUDED.start_id,
+					end_id = EXCLUDED.end_id,
+					usr = EXCLUDED.usr,
+					file_size = EXCLUDED.file_size,
+					file_count = EXCLUDED.file_count,
+					updated_at = CURRENT_TIMESTAMP,
+					checked_at = EXCLUDED.checked_at,
+					is_valid = EXCLUDED.is_valid
+				WHERE book_zip.filename = EXCLUDED.filename
+			");
+			
+			$params = [
+				":fn" => $entry,
+				":start" => $start_id,
+				":end" => $end_id,
+				":usr" => $u,
+				":size" => $file_size,
+				":count" => $file_count
+			];
+			
+			$stmt->execute($params);
+			
+			if (isset($existing_map[$entry])) {
+				$updated_count++;
+				echo " [обновлен]";
+			} else {
+				$new_count++;
+				echo " [добавлен]";
+			}
+			
+			$processed_count++;
+			echo "\n";
 		}
-		echo "\n";
 	}
 	
 	$dbh->commit();
 	closedir($handle);
 	
 	// Проверяем, что данные действительно записались в базу
-	$check_stmt = $dbh->prepare("SELECT COUNT(*) as cnt FROM book_zip");
+	$check_stmt = $dbh->prepare("SELECT COUNT(*) as cnt FROM book_zip WHERE is_valid = TRUE");
 	$check_stmt->execute();
 	$row = $check_stmt->fetch(PDO::FETCH_ASSOC);
 	$db_count = $row['cnt'] ?? 0;
 	
-	echo "\nОбработано файлов: $processed_count\n";
-	if ($skipped_count > 0) {
-		echo "Пропущено файлов: $skipped_count\n";
-	}
-	echo "Записей в базе данных: $db_count\n";
+	// Проверяем количество недействительных файлов
+	$invalid_check_stmt = $dbh->prepare("SELECT COUNT(*) as cnt FROM book_zip WHERE is_valid = FALSE");
+	$invalid_check_stmt->execute();
+	$invalid_row = $invalid_check_stmt->fetch(PDO::FETCH_ASSOC);
+	$db_invalid_count = $invalid_row['cnt'] ?? 0;
 	
-	if ($processed_count === 0) {
-		echo "Предупреждение: Не найдено ZIP файлов для обработки\n";
-	} elseif ($db_count !== $processed_count) {
-		echo "ВНИМАНИЕ: Количество обработанных файлов ($processed_count) не совпадает с количеством записей в БД ($db_count)!\n";
-		error_log("Несоответствие: обработано $processed_count файлов, но в БД $db_count записей");
+	// Общая продолжительность
+	$end_time = microtime(true);
+	$duration = round($end_time - $start_time, 2);
+	
+	// Вывод статистики
+	echo "\n" . str_repeat("=", 70) . "\n";
+	echo "СТАТИСТИКА ИНДЕКСАЦИИ\n";
+	echo str_repeat("=", 70) . "\n";
+	echo "Обработано файлов: $processed_count\n";
+	echo "  - Новых: $new_count\n";
+	echo "  - Обновлено: $updated_count\n";
+	echo "Пропущено файлов: $skipped_count\n";
+	echo "Недействительных файлов: $invalid_count\n";
+	echo "Записей в БД (действительные): $db_count\n";
+	echo "Записей в БД (недействительные): $db_invalid_count\n";
+	echo "\n";
+	
+	// Статистика валидации
+	echo "СТАТИСТИКА ВАЛИДАЦИИ ZIP:\n";
+	echo str_repeat("-", 70) . "\n";
+	echo "Открыто успешно: " . $validation_stats['opened'] . "\n";
+	echo "Ошибок открытия: " . $validation_stats['failed_open'] . "\n";
+	echo "Пустых архивов: " . $validation_stats['empty'] . "\n";
+	echo "Валидных файлов: " . $validation_stats['valid'] . "\n";
+	echo "\n";
+	
+	// Производительность
+	echo "ПРОИЗВОДИТЕЛЬНОСТЬ:\n";
+	echo str_repeat("-", 70) . "\n";
+	echo "Общее время выполнения: {$duration} сек (" . gmdate('H:i:s', $duration) . ")\n";
+	if ($processed_count > 0) {
+		$avg_time = round($duration / $processed_count, 3);
+		echo "Среднее время на файл: {$avg_time} сек\n";
+		echo "Скорость обработки: " . round($processed_count / $duration, 2) . " файлов/сек\n";
 	}
+	echo "\n";
+	
+	// Проверки и предупреждения
+	if ($processed_count === 0) {
+		echo "ПРЕДУПРЕЖДЕНИЕ: Не найдено ZIP файлов для обработки\n";
+		log_message(LOG_WARNING, "Не найдено ZIP файлов для обработки");
+	} elseif ($db_invalid_count > 0) {
+		echo "ВНИМАНИЕ: Обнаружено $db_invalid_count недействительных ZIP файлов\n";
+		echo "Проверьте их с помощью: SELECT * FROM book_zip WHERE is_valid = FALSE;\n";
+		log_message(LOG_WARNING, "Обнаружено $db_invalid_count недействительных ZIP файлов");
+	}
+	
+	if ($processed_count !== $new_count && $updated_count === 0) {
+		$expected = $processed_count + count($existing_map);
+		if ($db_count !== $expected) {
+			echo "ВНИМАНИЕ: Несоответствие количества файлов ($expected) с количеством записей в БД ($db_count)!\n";
+			log_message(LOG_ERROR, "Несоответствие: ожидается $expected записей, в БД $db_count записей");
+		}
+	}
+	
+	// Если все прошло успешно, удаляем старые недействительные записи (старше 30 дней)
+	if ($db_invalid_count > 0) {
+		echo "Удаление старых недействительных записей (старше 30 дней)...\n";
+		$cleanup_stmt = $dbh->exec("
+			DELETE FROM book_zip 
+			WHERE is_valid = FALSE 
+			AND checked_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
+		");
+		$deleted_count = $cleanup_stmt;
+		echo "Удалено старых записей: $deleted_count\n";
+	}
+	
+	echo log_message(LOG_INFO, "Индексация успешно завершена. Обработано файлов: $processed_count, Время: {$duration} сек");
 	
 } catch (Exception $e) {
 	if ($dbh->inTransaction()) {
 		$dbh->rollBack();
 	}
-	$error = "Ошибка при обработке: " . $e->getMessage();
-	error_log($error);
+	$error = log_message(LOG_ERROR, "Критическая ошибка при обработке: " . $e->getMessage());
 	echo $error . "\n";
 	closedir($handle);
 	exit(1);
+}
+
+/**
+ * Форматирование размера в читаемый вид
+ */
+function formatBytes($bytes, $precision = 2) {
+	$units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	$bytes = max($bytes, 0);
+	$pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+	$pow = min($pow, count($units) - 1);
+	$bytes /= pow(1024, $pow);
+	return round($bytes, $precision) . ' ' . $units[$pow];
+}
+
+/**
+ * Логирование сообщения с временной меткой
+ */
+function log_message($level, $message) {
+	$timestamp = date('Y-m-d H:i:s');
+	$formatted = "[$timestamp] [$level] $message";
+	error_log($formatted);
+	return $formatted;
 }
