@@ -35,7 +35,7 @@ services:
     webserver:
         image: 'nginx:1.25-alpine'
         working_dir: /application
-        command: nginx -c /etc/nginx/nginx.conf
+        command: ["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]
         volumes:
             - './application:/application'
             - './cache:/application/cache'
