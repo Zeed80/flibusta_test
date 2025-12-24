@@ -65,7 +65,18 @@ echo "importing" > /application/cache/sql_status
 # Распаковка sql.gz файлов
 # Проверяем наличие .gz файлов перед распаковкой
 if ls /application/sql/*.gz 1> /dev/null 2>&1; then
-    safe_execute "Распаковка SQL.gz файлов" "cd /application/sql && for f in *.gz; do gzip -f -d \"\$f\" 2>/dev/null || true; done" 0
+    echo -e "${YELLOW}Распаковка SQL.gz файлов...${NC}"
+    cd /application/sql
+    # Распаковываем каждый файл индивидуально с подробным выводом
+    for gzfile in *.gz; do
+        if [ -f "$gzfile" ]; then
+            echo "Распаковка: $gzfile"
+            gzip -d -f "$gzfile" 2>&1 || {
+                echo -e "${RED}Ошибка при распаковке $gzfile${NC}" | tee -a /application/cache/sql_status
+            }
+        fi
+    done
+    echo -e "${GREEN}✓ Распаковка SQL.gz файлов завершен успешно${NC}" | tee -a /application/cache/sql_status
 else
     echo -e "${YELLOW}⚠ Файлы .gz не найдены, пропускаем распаковку${NC}" | tee -a /application/cache/sql_status
 fi

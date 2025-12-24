@@ -87,6 +87,29 @@ try {
 		");
 		$dbh->exec("CREATE INDEX idx_book_zip_start_end ON book_zip(start_id, end_id)");
 		$dbh->exec("CREATE INDEX idx_book_zip_usr ON book_zip(usr)");
+	} else {
+		// Проверяем наличие колонок file_size и file_count и добавляем их при необходимости
+		$columns_check = $dbh->query("
+			SELECT column_name 
+			FROM information_schema.columns 
+			WHERE table_name = 'book_zip' 
+			AND column_name IN ('file_size', 'file_count')
+		")->fetchAll(PDO::FETCH_COLUMN);
+		
+		if (!in_array('file_size', $columns_check)) {
+			echo log_message(LOG_INFO, "Добавление колонки file_size в таблицу book_zip...\n");
+			$dbh->exec("ALTER TABLE book_zip ADD COLUMN file_size BIGINT DEFAULT 0");
+		}
+		
+		if (!in_array('file_count', $columns_check)) {
+			echo log_message(LOG_INFO, "Добавление колонки file_count в таблицу book_zip...\n");
+			$dbh->exec("ALTER TABLE book_zip ADD COLUMN file_count INTEGER DEFAULT 0");
+		}
+		
+		if (!in_array('is_valid', $columns_check)) {
+			echo log_message(LOG_INFO, "Добавление колонки is_valid в таблицу book_zip...\n");
+			$dbh->exec("ALTER TABLE book_zip ADD COLUMN is_valid BOOLEAN DEFAULT TRUE");
+		}
 	}
 
 	// Получаем существующие записи для сравнения
