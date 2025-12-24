@@ -75,6 +75,7 @@ services:
             - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
             - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
             - './scripts:/application/scripts'
+        entrypoint: ["sh", "-c", "mkdir -p /application/cache/tmp /application/cache/authors /application/cache/covers /application/cache/opds && chown -R www-data:www-data /application/cache && exec docker-php-entrypoint php-fpm"]
         environment:
             - FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER:-flibusta}
             - FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME:-flibusta}
