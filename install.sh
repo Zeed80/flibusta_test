@@ -985,65 +985,200 @@ init_database() {
     
     log "${BLUE}Инициализация базы данных...${NC}"
     
-    local compose_cmd="docker-compose"
-    if ! command -v docker-compose &> /dev/null; then
-        compose_cmd="docker compose"
+    local compose_cmd=$(get_compose_cmd)
+    
+    # Загрузка переменных окружения из .env
+    if [ -f ".env" ]; then
+        set -a
+        source .env 2>/dev/null || true
+        set +a
     fi
     
-    # Ожидание готовности контейнера postgres
+    # Проверка наличия скрипта инициализации
+    if [ ! -f "scripts/init_database.sh" ]; then
+        log "${RED}✗ Скрипт scripts/init_database.sh не найден${NC}"
+        log "${YELLOW}Инициализацию БД нужно выполнить вручную позже${NC}"
+        return 1
+    fi
+    
+    # Проверка наличия SQL файлов на хосте (если путь указан)
+    local sql_path="${FLIBUSTA_SQL_PATH:-./FlibustaSQL}"
+    if [ -d "$sql_path" ]; then
+        local sql_count=$(find "$sql_path" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
+        if [ "$sql_count" -eq 0 ]; then
+            log "${YELLOW}⚠ SQL файлы не найдены в $sql_path${NC}"
+            log "${YELLOW}Инициализация БД будет пропущена. Импортируйте SQL файлы вручную позже.${NC}"
+            return 0
+        else
+            log "${GREEN}✓ Найдено SQL файлов на хосте: $sql_count${NC}"
+        fi
+    else
+        log "${YELLOW}⚠ Директория с SQL файлами не найдена: $sql_path${NC}"
+        log "${YELLOW}Инициализация БД будет пропущена. Импортируйте SQL файлы вручную позже.${NC}"
+        return 0
+    fi
+    
+    # Проверка наличия пароля БД
+    local db_password=""
+    if [ -f "secrets/flibusta_pwd.txt" ]; then
+        db_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
+    fi
+    
+    if [ -z "$db_password" ] && [ -n "${FLIBUSTA_DBPASSWORD:-}" ]; then
+        db_password="${FLIBUSTA_DBPASSWORD}"
+    fi
+    
+    if [ -z "$db_password" ]; then
+        log "${RED}✗ Пароль базы данных не найден${NC}"
+        log "${YELLOW}Проверьте файл secrets/flibusta_pwd.txt или переменную FLIBUSTA_DBPASSWORD в .env${NC}"
+        log "${YELLOW}Инициализацию БД нужно выполнить вручную позже${NC}"
+        return 1
+    fi
+    
+    log "${GREEN}✓ Пароль БД найден${NC}"
+    
+    # Ожидание готовности контейнера postgres с проверкой healthcheck
     log "${BLUE}Ожидание готовности PostgreSQL...${NC}"
     local postgres_ready=0
-    for i in {1..30}; do
-        if $compose_cmd exec -T postgres pg_isready -U flibusta -d flibusta >/dev/null 2>&1; then
-            postgres_ready=1
-            log "${GREEN}✓ PostgreSQL готов${NC}"
-            break
+    local max_attempts=60
+    
+    for i in $(seq 1 $max_attempts); do
+        # Проверяем healthcheck статус контейнера
+        local health_status=$($compose_cmd ps postgres 2>/dev/null | grep -o "healthy\|unhealthy" | head -1 || echo "")
+        
+        # Проверяем доступность через pg_isready
+        if $compose_cmd exec -T postgres pg_isready -U "${FLIBUSTA_DBUSER:-flibusta}" -d "${FLIBUSTA_DBNAME:-flibusta}" >/dev/null 2>&1; then
+            # Дополнительная проверка: реальное подключение с паролем
+            export PGPASSWORD="$db_password"
+            if $compose_cmd exec -T postgres psql -U "${FLIBUSTA_DBUSER:-flibusta}" -d "${FLIBUSTA_DBNAME:-flibusta}" -c "SELECT 1;" >/dev/null 2>&1; then
+                postgres_ready=1
+                log "${GREEN}✓ PostgreSQL готов и доступен${NC}"
+                break
+            fi
         fi
-        if [ $i -eq 30 ]; then
-            log "${RED}✗ PostgreSQL не готов после 30 попыток${NC}"
+        
+        if [ "$i" -eq "$max_attempts" ]; then
+            log "${RED}✗ PostgreSQL не готов после $max_attempts попыток${NC}"
+            log "${YELLOW}Проверьте статус контейнера: $compose_cmd ps postgres${NC}"
+            log "${YELLOW}Проверьте логи: $compose_cmd logs postgres${NC}"
             log "${YELLOW}Инициализацию БД нужно выполнить вручную позже${NC}"
             return 1
         fi
+        
+        if [ $((i % 10)) -eq 0 ]; then
+            log "${BLUE}Ожидание готовности PostgreSQL... (попытка $i/$max_attempts)${NC}"
+        fi
+        
         sleep 2
     done
     
-    # Ожидание готовности контейнера php-fpm
+    # Ожидание готовности контейнера php-fpm с проверкой healthcheck
     log "${BLUE}Ожидание готовности php-fpm...${NC}"
     local php_ready=0
     local php_container=""
-    for i in {1..30}; do
-        php_container=$(docker ps -q -f name=php-fpm | head -1)
-        if [ -n "$php_container" ] && $compose_cmd exec -T php-fpm sh -c "test -d /application" >/dev/null 2>&1; then
+    local max_attempts_php=60
+    
+    for i in $(seq 1 $max_attempts_php); do
+        # Проверяем healthcheck статус контейнера
+        local php_health_status=$($compose_cmd ps php-fpm 2>/dev/null | grep -o "healthy\|unhealthy" | head -1 || echo "")
+        
+        php_container=$(docker ps -q -f name=php-fpm 2>/dev/null | head -1)
+        if [ -n "$php_container" ] && $compose_cmd exec -T php-fpm sh -c "test -d /application && test -f /application/scripts/init_database.sh" >/dev/null 2>&1; then
             php_ready=1
-            log "${GREEN}✓ php-fpm готов${NC}"
+            log "${GREEN}✓ php-fpm готов и скрипт инициализации доступен${NC}"
             break
         fi
-        if [ $i -eq 30 ]; then
-            log "${RED}✗ php-fpm не готов после 30 попыток${NC}"
+        
+        if [ "$i" -eq "$max_attempts_php" ]; then
+            log "${RED}✗ php-fpm не готов после $max_attempts_php попыток${NC}"
+            log "${YELLOW}Проверьте статус контейнера: $compose_cmd ps php-fpm${NC}"
+            log "${YELLOW}Проверьте логи: $compose_cmd logs php-fpm${NC}"
             log "${YELLOW}Инициализацию БД нужно выполнить вручную позже${NC}"
             return 1
         fi
+        
+        if [ $((i % 10)) -eq 0 ]; then
+            log "${BLUE}Ожидание готовности php-fpm... (попытка $i/$max_attempts_php)${NC}"
+        fi
+        
         sleep 2
     done
     
-    # Копирование скрипта инициализации в контейнер
-    if [ -n "$php_container" ] && [ -f "scripts/init_database.sh" ]; then
-        if docker cp scripts/init_database.sh ${php_container}:/application/scripts/init_database.sh 2>/dev/null; then
-            log "${GREEN}✓ Скрипт инициализации скопирован в контейнер${NC}"
-        else
-            log "${YELLOW}⚠ Не удалось скопировать скрипт в контейнер${NC}"
+    # Скрипт уже должен быть доступен через volume, но проверяем
+    if [ $php_ready -eq 1 ]; then
+        if ! $compose_cmd exec -T php-fpm sh -c "test -f /application/scripts/init_database.sh" >/dev/null 2>&1; then
+            log "${YELLOW}⚠ Скрипт init_database.sh не найден в контейнере через volume${NC}"
+            log "${BLUE}Попытка копирования скрипта в контейнер...${NC}"
+            if [ -n "$php_container" ] && [ -f "scripts/init_database.sh" ]; then
+                if docker cp scripts/init_database.sh ${php_container}:/application/scripts/init_database.sh 2>/dev/null; then
+                    log "${GREEN}✓ Скрипт инициализации скопирован в контейнер${NC}"
+                else
+                    log "${RED}✗ Не удалось скопировать скрипт в контейнер${NC}"
+                    log "${YELLOW}Проверьте, что volume scripts правильно смонтирован в docker-compose.yml${NC}"
+                    return 1
+                fi
+            else
+                log "${RED}✗ Не удалось найти скрипт или контейнер для копирования${NC}"
+                return 1
+            fi
         fi
     fi
     
-    # Запуск инициализации
+    # Запуск инициализации с явной передачей переменных окружения
     if [ $php_ready -eq 1 ] && [ $postgres_ready -eq 1 ]; then
         log "${BLUE}Запуск инициализации базы данных...${NC}"
-        if docker exec ${php_container} sh /application/scripts/init_database.sh 2>&1 || \
-            $compose_cmd exec -T php-fpm sh /application/scripts/init_database.sh 2>&1; then
-            log "${GREEN}✓ Инициализация БД завершена${NC}"
+        
+        # Подготовка переменных окружения для передачи в контейнер
+        # Используем отдельные флаги -e для каждой переменной
+        local docker_env_args=""
+        if [ -n "${FLIBUSTA_DBUSER:-}" ]; then
+            docker_env_args="$docker_env_args -e FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER}"
+        fi
+        if [ -n "${FLIBUSTA_DBNAME:-}" ]; then
+            docker_env_args="$docker_env_args -e FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME}"
+        fi
+        if [ -n "${FLIBUSTA_DBHOST:-}" ]; then
+            docker_env_args="$docker_env_args -e FLIBUSTA_DBHOST=${FLIBUSTA_DBHOST}"
+        fi
+        if [ -n "$db_password" ]; then
+            docker_env_args="$docker_env_args -e FLIBUSTA_DBPASSWORD=${db_password}"
+        fi
+        if [ -n "${FLIBUSTA_DBPASSWORD_FILE:-}" ]; then
+            docker_env_args="$docker_env_args -e FLIBUSTA_DBPASSWORD_FILE=${FLIBUSTA_DBPASSWORD_FILE}"
+        fi
+        
+        # Запуск скрипта с переменными окружения
+        local init_exit_code=1
+        local init_output=""
+        
+        # Пробуем выполнить через docker exec с переменными окружения
+        if [ -n "$php_container" ]; then
+            # Используем eval для правильной обработки переменных окружения
+            init_output=$(eval "docker exec $docker_env_args ${php_container} sh /application/scripts/init_database.sh" 2>&1)
+            init_exit_code=$?
+        fi
+        
+        # Если не получилось через docker exec, пробуем через docker-compose exec
+        if [ $init_exit_code -ne 0 ]; then
+            # Для docker-compose exec используем другой синтаксис
+            if [ -n "$docker_env_args" ]; then
+                init_output=$(eval "$compose_cmd exec -T $docker_env_args php-fpm sh /application/scripts/init_database.sh" 2>&1)
+            else
+                init_output=$($compose_cmd exec -T php-fpm sh /application/scripts/init_database.sh 2>&1)
+            fi
+            init_exit_code=$?
+        fi
+        
+        # Выводим результат
+        echo "$init_output"
+        
+        if [ $init_exit_code -eq 0 ]; then
+            log "${GREEN}✓ Инициализация БД завершена успешно${NC}"
+            return 0
         else
-            log "${RED}✗ Ошибка при инициализации БД${NC}"
-            log "${YELLOW}Проверьте логи выше для деталей${NC}"
+            log "${RED}✗ Ошибка при инициализации БД (код выхода: $init_exit_code)${NC}"
+            log "${YELLOW}Проверьте вывод выше для деталей${NC}"
+            log "${YELLOW}Также проверьте логи в контейнере: $compose_cmd exec php-fpm cat /var/log/flibusta_init.log${NC}"
             return 1
         fi
     else
@@ -1287,6 +1422,60 @@ main() {
     # Обновление пароля в существующей БД (если volume уже существует)
     update_db_password
     
+    # Предварительные проверки перед инициализацией БД
+    if [ $AUTO_INIT -eq 1 ]; then
+        log "${BLUE}Проверка условий для инициализации БД...${NC}"
+        
+        # Проверка наличия SQL файлов
+        local sql_path="${FLIBUSTA_SQL_PATH:-./FlibustaSQL}"
+        local sql_files_found=0
+        if [ -d "$sql_path" ]; then
+            local sql_count=$(find "$sql_path" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
+            if [ "$sql_count" -gt 0 ]; then
+                sql_files_found=1
+                log "${GREEN}✓ SQL файлы найдены: $sql_count файлов в $sql_path${NC}"
+            else
+                log "${YELLOW}⚠ SQL файлы не найдены в $sql_path${NC}"
+            fi
+        else
+            log "${YELLOW}⚠ Директория с SQL файлами не найдена: $sql_path${NC}"
+        fi
+        
+        # Проверка наличия пароля БД
+        local db_password_check=""
+        if [ -f "secrets/flibusta_pwd.txt" ]; then
+            db_password_check=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
+            if [ -n "$db_password_check" ]; then
+                log "${GREEN}✓ Пароль БД найден в secrets/flibusta_pwd.txt${NC}"
+            else
+                log "${YELLOW}⚠ Файл secrets/flibusta_pwd.txt пуст${NC}"
+            fi
+        else
+            log "${YELLOW}⚠ Файл secrets/flibusta_pwd.txt не найден${NC}"
+        fi
+        
+        if [ -z "$db_password_check" ] && [ -n "${FLIBUSTA_DBPASSWORD:-}" ]; then
+            db_password_check="${FLIBUSTA_DBPASSWORD}"
+            log "${GREEN}✓ Пароль БД найден в переменной окружения${NC}"
+        fi
+        
+        if [ -z "$db_password_check" ]; then
+            log "${RED}✗ Пароль БД не найден${NC}"
+            log "${YELLOW}Инициализация БД будет пропущена${NC}"
+            AUTO_INIT=0
+        fi
+        
+        if [ $sql_files_found -eq 0 ]; then
+            log "${YELLOW}⚠ SQL файлы не найдены, инициализация БД будет пропущена${NC}"
+            log "${YELLOW}Импортируйте SQL файлы вручную позже${NC}"
+            AUTO_INIT=0
+        fi
+        
+        if [ $AUTO_INIT -eq 1 ]; then
+            log "${GREEN}✓ Все условия для инициализации БД выполнены${NC}"
+        fi
+    fi
+    
     # Инициализация БД
     # Не критично, продолжаем даже при ошибке
     if ! init_database; then
@@ -1297,6 +1486,8 @@ main() {
         log "${YELLOW}  3. Если volume БД существует со старым паролем, удалите его:${NC}"
         log "${YELLOW}     $compose_cmd down -v${NC}"
         log "${YELLOW}     (ВНИМАНИЕ: это удалит все данные базы!)${NC}"
+        log "${YELLOW}Для ручной инициализации выполните:${NC}"
+        log "${YELLOW}  $compose_cmd exec php-fpm sh /application/scripts/init_database.sh${NC}"
     fi
     
     # Проверка установки
