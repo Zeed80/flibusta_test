@@ -1051,6 +1051,34 @@ main() {
         fi
     fi
     
+    # Проверка соответствия паролей в .env и secrets/flibusta_pwd.txt
+    if [ -f ".env" ] && [ -f "secrets/flibusta_pwd.txt" ]; then
+        local env_password=$(grep "^FLIBUSTA_DBPASSWORD=" .env | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+        local secret_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' || echo "")
+        
+        if [ -n "$env_password" ] && [ -n "$secret_password" ] && [ "$env_password" != "$secret_password" ]; then
+            log "${YELLOW}⚠ Пароли в .env и secrets/flibusta_pwd.txt не совпадают${NC}"
+            log "${BLUE}Обновление пароля в secrets/flibusta_pwd.txt...${NC}"
+            if echo -n "$env_password" > secrets/flibusta_pwd.txt && chmod 600 secrets/flibusta_pwd.txt; then
+                log "${GREEN}✓ Пароль в secrets/flibusta_pwd.txt обновлен${NC}"
+            else
+                log "${RED}✗ Не удалось обновить пароль в secrets/flibusta_pwd.txt${NC}"
+                exit 1
+            fi
+        fi
+    fi
+    
+    # Проверка существования volume PostgreSQL и предупреждение
+    local compose_cmd=$(get_compose_cmd)
+    # Проверяем наличие volume с db-data в имени (может быть с префиксом проекта)
+    if docker volume ls 2>/dev/null | grep -q "db-data"; then
+        log "${YELLOW}⚠ Обнаружен существующий volume базы данных${NC}"
+        log "${YELLOW}Если пароль был изменен и возникают ошибки подключения, удалите volume:${NC}"
+        log "${YELLOW}  $compose_cmd down -v${NC}"
+        log "${YELLOW}  (ВНИМАНИЕ: это удалит все данные базы!)${NC}"
+        log "${YELLOW}Затем запустите установку заново.${NC}"
+    fi
+    
     # Сборка образов
     if ! build_containers; then
         log "${RED}Ошибка при сборке образов. Установка остановлена.${NC}"
@@ -1067,6 +1095,12 @@ main() {
     # Не критично, продолжаем даже при ошибке
     if ! init_database; then
         log "${YELLOW}⚠ Инициализация БД не выполнена. Выполните её вручную позже.${NC}"
+        log "${YELLOW}Если проблема связана с паролем БД, проверьте:${NC}"
+        log "${YELLOW}  1. Пароль в .env: grep FLIBUSTA_DBPASSWORD .env${NC}"
+        log "${YELLOW}  2. Пароль в secrets: cat secrets/flibusta_pwd.txt${NC}"
+        log "${YELLOW}  3. Если volume БД существует со старым паролем, удалите его:${NC}"
+        log "${YELLOW}     $compose_cmd down -v${NC}"
+        log "${YELLOW}     (ВНИМАНИЕ: это удалит все данные базы!)${NC}"
     fi
     
     # Проверка установки
