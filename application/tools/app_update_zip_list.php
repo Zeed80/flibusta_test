@@ -14,9 +14,15 @@ if (!defined('FLIBUSTA_BOOKS_DIR')) {
 }
 
 // Константы логирования
-define('LOG_INFO', 'INFO');
-define('LOG_WARNING', 'WARNING');
-define('LOG_ERROR', 'ERROR');
+if (!defined('LOG_INFO')) {
+	define('LOG_INFO', 'INFO');
+}
+if (!defined('LOG_WARNING')) {
+	define('LOG_WARNING', 'WARNING');
+}
+if (!defined('LOG_ERROR')) {
+	define('LOG_ERROR', 'ERROR');
+}
 
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -124,6 +130,37 @@ try {
 		if (!in_array('created_at', $columns_check)) {
 			echo log_message(LOG_INFO, "Добавление колонки created_at в таблицу book_zip...\n");
 			$dbh->exec("ALTER TABLE book_zip ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+		}
+		
+		// Проверяем наличие уникального индекса на filename для ON CONFLICT
+		$unique_index_check = $dbh->query("
+			SELECT COUNT(*) 
+			FROM pg_indexes 
+			WHERE tablename = 'book_zip' 
+			AND indexname LIKE '%filename%'
+			AND indexdef LIKE '%UNIQUE%'
+		")->fetchColumn();
+		
+		if ($unique_index_check == 0) {
+			echo log_message(LOG_INFO, "Создание уникального индекса на filename...\n");
+			try {
+				$dbh->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_book_zip_filename_unique ON book_zip(filename)");
+			} catch (PDOException $e) {
+				// Если индекс уже существует или есть дубликаты, пытаемся создать через ALTER TABLE
+				echo log_message(LOG_WARNING, "Не удалось создать уникальный индекс через CREATE INDEX, пробуем через ALTER TABLE...\n");
+				try {
+					// Удаляем дубликаты перед созданием уникального ограничения
+					$dbh->exec("
+						DELETE FROM book_zip a 
+						USING book_zip b 
+						WHERE a.id < b.id AND a.filename = b.filename
+					");
+					$dbh->exec("ALTER TABLE book_zip ADD CONSTRAINT book_zip_filename_unique UNIQUE (filename)");
+				} catch (PDOException $e2) {
+					echo log_message(LOG_WARNING, "Не удалось создать уникальное ограничение: " . $e2->getMessage() . "\n");
+					echo log_message(LOG_WARNING, "Продолжаем работу без уникального индекса, ON CONFLICT может не работать\n");
+				}
+			}
 		}
 	}
 
@@ -275,21 +312,32 @@ try {
 			}
 			
 			// Вставляем или обновляем запись (инкрементальная индексация)
-			$stmt = $dbh->prepare("
-				INSERT INTO book_zip (filename, start_id, end_id, usr, file_size, file_count, created_at, updated_at, checked_at, is_valid)
-				VALUES (:fn, :start, :end, :usr, :size, :count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, TRUE)
-				ON CONFLICT (filename) 
-				DO UPDATE SET 
-					start_id = EXCLUDED.start_id,
-					end_id = EXCLUDED.end_id,
-					usr = EXCLUDED.usr,
-					file_size = EXCLUDED.file_size,
-					file_count = EXCLUDED.file_count,
-					updated_at = CURRENT_TIMESTAMP,
-					checked_at = EXCLUDED.checked_at,
-					is_valid = EXCLUDED.is_valid
-				WHERE book_zip.filename = EXCLUDED.filename
-			");
+			// Проверяем, существует ли запись
+			$check_stmt = $dbh->prepare("SELECT id FROM book_zip WHERE filename = :fn LIMIT 1");
+			$check_stmt->execute([":fn" => $entry]);
+			$existing_record = $check_stmt->fetch(PDO::FETCH_ASSOC);
+			
+			if ($existing_record) {
+				// Обновляем существующую запись
+				$stmt = $dbh->prepare("
+					UPDATE book_zip 
+					SET start_id = :start,
+						end_id = :end,
+						usr = :usr,
+						file_size = :size,
+						file_count = :count,
+						updated_at = CURRENT_TIMESTAMP,
+						checked_at = CURRENT_TIMESTAMP,
+						is_valid = TRUE
+					WHERE filename = :fn
+				");
+			} else {
+				// Вставляем новую запись
+				$stmt = $dbh->prepare("
+					INSERT INTO book_zip (filename, start_id, end_id, usr, file_size, file_count, created_at, updated_at, checked_at, is_valid)
+					VALUES (:fn, :start, :end, :usr, :size, :count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, TRUE)
+				");
+			}
 			
 			$params = [
 				":fn" => $entry,
