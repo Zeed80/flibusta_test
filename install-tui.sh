@@ -188,7 +188,9 @@ show_container_management() {
                         echo "Сборка образов..."
                         echo "XXX"
                         if [ -f ".env" ]; then
-                            export $(grep -v '^#' .env | xargs)
+                            set -a
+                            source .env 2>/dev/null || true
+                            set +a
                         fi
                         $compose_cmd build 2>&1 | tee -a /tmp/flibusta_build.log
                         echo "100"
@@ -212,7 +214,9 @@ show_container_management() {
                         echo "Запуск контейнеров..."
                         echo "XXX"
                         if [ -f ".env" ]; then
-                            export $(grep -v '^#' .env | xargs)
+                            set -a
+                            source .env 2>/dev/null || true
+                            set +a
                         fi
                         $compose_cmd up -d 2>&1 | tee -a /tmp/flibusta_start.log
                         echo "50"
@@ -245,7 +249,9 @@ show_container_management() {
             4)
                 if dialog_yesno "Подтверждение" "Перезапустить контейнеры?"; then
                     if [ -f ".env" ]; then
-                        export $(grep -v '^#' .env | xargs)
+                        set -a
+                        source .env 2>/dev/null || true
+                        set +a
                     fi
                     if $compose_cmd restart 2>&1; then
                         dialog_msgbox "Успешно" "Контейнеры перезапущены!"

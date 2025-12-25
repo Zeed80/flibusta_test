@@ -13,7 +13,9 @@ ERRORS=0
 
 # Загрузка .env если существует
 if [ -f ".env" ]; then
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    source .env 2>/dev/null || true
+    set +a
 fi
 
 WEB_PORT="${FLIBUSTA_PORT:-27100}"

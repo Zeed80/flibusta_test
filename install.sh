@@ -497,7 +497,9 @@ build_containers() {
     
     # Загрузка .env
     if [ -f ".env" ]; then
-        export $(grep -v '^#' .env | xargs)
+        set -a
+        source .env 2>/dev/null || true
+        set +a
     fi
     
     if $compose_cmd build; then
@@ -518,7 +520,9 @@ start_containers() {
     
     # Загрузка .env
     if [ -f ".env" ]; then
-        export $(grep -v '^#' .env | xargs)
+        set -a
+        source .env 2>/dev/null || true
+        set +a
     fi
     
     # Запуск контейнеров (образы должны быть собраны заранее)
@@ -636,7 +640,9 @@ restart_containers() {
     
     # Загрузка .env
     if [ -f ".env" ]; then
-        export $(grep -v '^#' .env | xargs)
+        set -a
+        source .env 2>/dev/null || true
+        set +a
     fi
     
     if [ -f "docker-compose.yml" ]; then
