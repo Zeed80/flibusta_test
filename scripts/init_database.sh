@@ -417,34 +417,36 @@ fi
 # Создание индекса zip-файлов
 log_info "Создание индекса zip-файлов..."
 if [ -f "/application/tools/app_update_zip_list.php" ]; then
-    # Проверка готовности php-fpm перед использованием
-    php_fpm_ready=0
-    for i in 1 2 3 4 5; do
-        if $COMPOSE_CMD exec -T php-fpm sh -c "test -f /application/tools/app_update_zip_list.php" > /dev/null 2>&1; then
-            php_fpm_ready=1
-            break
-        fi
-        sleep 1
-    done
-    
-    if [ $php_fpm_ready -eq 1 ]; then
-        log_info "Попытка создания индекса через php-fpm..."
-        if $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
+    # Если мы внутри контейнера php-fpm, выполняем напрямую
+    if [ $INSIDE_CONTAINER -eq 1 ] && command -v php > /dev/null 2>&1; then
+        log_info "Попытка создания индекса локально (внутри контейнера)..."
+        if php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
             log_success "Индекс zip-файлов создан"
         else
-            log_warning "Не удалось создать индекс zip-файлов через php-fpm"
-            # Попытка выполнить локально, если мы в контейнере
-            if command -v php > /dev/null 2>&1; then
-                log_info "Попытка создания индекса локально..."
-                if php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
-                    log_success "Индекс zip-файлов создан (локально)"
-                else
-                    log_warning "Не удалось создать индекс zip-файлов локально"
-                fi
-            fi
+            log_warning "Не удалось создать индекс zip-файлов локально"
         fi
     else
-        log_warning "php-fpm не готов, пропуск создания индекса zip-файлов"
+        # Проверка готовности php-fpm перед использованием
+        php_fpm_ready=0
+        for i in 1 2 3 4 5 10; do
+            if $COMPOSE_CMD exec -T php-fpm sh -c "test -f /application/tools/app_update_zip_list.php && php -v > /dev/null 2>&1" > /dev/null 2>&1; then
+                php_fpm_ready=1
+                break
+            fi
+            sleep 1
+        done
+        
+        if [ $php_fpm_ready -eq 1 ]; then
+            log_info "Попытка создания индекса через php-fpm..."
+            if $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
+                log_success "Индекс zip-файлов создан"
+            else
+                log_warning "Не удалось создать индекс zip-файлов через php-fpm"
+            fi
+        else
+            log_warning "php-fpm не готов, пропуск создания индекса zip-файлов"
+            log_info "Индекс можно создать позже через веб-интерфейс или вручную"
+        fi
     fi
 else
     log_warning "Файл app_update_zip_list.php не найден, пропуск создания индекса zip-файлов"

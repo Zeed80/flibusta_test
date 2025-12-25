@@ -2,6 +2,9 @@
 $dbname = getenv('FLIBUSTA_DBNAME')?getenv('FLIBUSTA_DBNAME'):'flibusta';
 $dbhost = getenv('FLIBUSTA_DBHOST')?getenv('FLIBUSTA_DBHOST'):'postgres';
 $dbuser = getenv('FLIBUSTA_DBUSER')?getenv('FLIBUSTA_DBUSER'):'flibusta';
+$dbpasswd = '';
+
+// Приоритет 1: Чтение из файла секрета (Docker secrets)
 if (getenv('FLIBUSTA_DBPASSWORD_FILE')) {
 	$passwordFile = getenv('FLIBUSTA_DBPASSWORD_FILE');
 	if (file_exists($passwordFile) && is_readable($passwordFile)) {
@@ -11,8 +14,18 @@ if (getenv('FLIBUSTA_DBPASSWORD_FILE')) {
 		}
 	}
 }
+
+// Приоритет 2: Переменная окружения
 if (empty($dbpasswd)) {
-	$dbpasswd = getenv('FLIBUSTA_DBPASSWORD') ?: 'flibusta';
+	$dbpasswd = getenv('FLIBUSTA_DBPASSWORD');
+	if ($dbpasswd !== false) {
+		$dbpasswd = trim($dbpasswd);
+	}
+}
+
+// Приоритет 3: Дефолтный пароль
+if (empty($dbpasswd)) {
+	$dbpasswd = 'flibusta';
 }
 
 $dbtype = getenv('FLIBUSTA_DBTYPE')?trim(strtolower(getenv('FLIBUSTA_DBTYPE'))):'postgres';
