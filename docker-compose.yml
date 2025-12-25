@@ -75,7 +75,7 @@ services:
             - './phpdocker/php-fpm/php-ini-overrides.ini:/usr/local/etc/php/conf.d/local-custom.ini'
             - './phpdocker/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.d/zz-php-fpm.conf'
             - './scripts:/application/scripts'
-        entrypoint: ["sh", "-c", "sh /application/scripts/fix_permissions.sh >/dev/null 2>&1 || (mkdir -p /application/cache/tmp /application/cache/authors /application/cache/covers /application/cache/opds /application/sql/psql && chmod -R 777 /application/cache /application/sql/psql 2>/dev/null || true && chown -R www-data:www-data /application/cache 2>/dev/null || true && cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null || true) && exec docker-php-entrypoint php-fpm"]
+        entrypoint: ["sh", "-c", "(if [ -f /run/secrets/FLIBUSTA_PWD ]; then cp /run/secrets/FLIBUSTA_PWD /tmp/flibusta_pwd.txt 2>/dev/null && chmod 644 /tmp/flibusta_pwd.txt 2>/dev/null && chown www-data:www-data /tmp/flibusta_pwd.txt 2>/dev/null || true; fi) && sh /application/scripts/fix_permissions.sh >/dev/null 2>&1 || (mkdir -p /application/cache/tmp /application/cache/authors /application/cache/covers /application/cache/opds /application/sql/psql && chmod -R 777 /application/cache /application/sql/psql 2>/dev/null || true && chown -R www-data:www-data /application/cache 2>/dev/null || true && cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null || true) && exec docker-php-entrypoint php-fpm"]
         environment:
             - FLIBUSTA_DBUSER=${FLIBUSTA_DBUSER:-flibusta}
             - FLIBUSTA_DBNAME=${FLIBUSTA_DBNAME:-flibusta}
