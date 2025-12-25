@@ -66,6 +66,41 @@ check_web_interface() {
         else
             echo -e "${RED}✗ Веб-интерфейс недоступен (HTTP $status)${NC}"
             ERRORS=$((ERRORS + 1))
+            
+            # Дополнительная диагностика для HTTP 500
+            if [ "$status" = "500" ]; then
+                echo -e "${YELLOW}  Диагностика HTTP 500 ошибки...${NC}"
+                
+                local compose_cmd="docker-compose"
+                if ! command -v docker-compose &> /dev/null; then
+                    compose_cmd="docker compose"
+                fi
+                
+                # Проверка логов PHP-FPM
+                if $compose_cmd exec -T php-fpm sh -c "test -f /var/log/nginx/application_php_errors.log" > /dev/null 2>&1; then
+                    echo -e "${YELLOW}  Последние ошибки PHP:${NC}"
+                    $compose_cmd exec -T php-fpm tail -n 10 /var/log/nginx/application_php_errors.log 2>/dev/null | sed 's/^/    /' || echo "    Не удалось прочитать логи"
+                fi
+                
+                # Проверка подключения к БД через PHP
+                echo -e "${YELLOW}  Проверка подключения к БД через PHP...${NC}"
+                if $compose_cmd exec -T php-fpm php -r "require '/application/dbinit.php'; exit(isset(\$dbh) && \$dbh !== null ? 0 : 1);" > /dev/null 2>&1; then
+                    echo -e "${GREEN}    ✓ Подключение к БД через PHP работает${NC}"
+                else
+                    echo -e "${RED}    ✗ Не удалось подключиться к БД через PHP${NC}"
+                    echo -e "${YELLOW}    Проверьте:${NC}"
+                    echo -e "${YELLOW}      - Пароль БД в secrets/flibusta_pwd.txt${NC}"
+                    echo -e "${YELLOW}      - Переменные окружения в .env${NC}"
+                    echo -e "${YELLOW}      - Логи: $compose_cmd logs php-fpm${NC}"
+                fi
+                
+                # Проверка логов nginx
+                echo -e "${YELLOW}  Проверка логов nginx...${NC}"
+                if $compose_cmd exec -T webserver sh -c "test -f /var/log/nginx/error.log" > /dev/null 2>&1; then
+                    echo -e "${YELLOW}  Последние ошибки nginx:${NC}"
+                    $compose_cmd exec -T webserver tail -n 5 /var/log/nginx/error.log 2>/dev/null | sed 's/^/    /' || echo "    Не удалось прочитать логи"
+                fi
+            fi
         fi
     else
         echo -e "${YELLOW}⚠ curl не найден, пропуск проверки${NC}"
@@ -84,6 +119,12 @@ check_opds() {
         else
             echo -e "${RED}✗ OPDS каталог недоступен (HTTP $status)${NC}"
             ERRORS=$((ERRORS + 1))
+            
+            # Дополнительная диагностика для HTTP 500
+            if [ "$status" = "500" ]; then
+                echo -e "${YELLOW}  OPDS каталог возвращает HTTP 500${NC}"
+                echo -e "${YELLOW}  Проверьте логи PHP-FPM: docker-compose logs php-fpm${NC}"
+            fi
         fi
     else
         echo -e "${YELLOW}⚠ curl не найден, пропуск проверки${NC}"
@@ -160,5 +201,24 @@ if [ $ERRORS -eq 0 ]; then
     exit 0
 else
     echo -e "${RED}Обнаружены проблемы при проверке установки${NC}"
+    echo ""
+    echo -e "${YELLOW}Рекомендации по устранению проблем:${NC}"
+    echo ""
+    echo "1. Проверьте статус контейнеров:"
+    echo "   docker-compose ps"
+    echo ""
+    echo "2. Проверьте логи PHP-FPM:"
+    echo "   docker-compose logs php-fpm | tail -n 50"
+    echo ""
+    echo "3. Проверьте логи nginx:"
+    echo "   docker-compose logs webserver | tail -n 50"
+    echo ""
+    echo "4. Проверьте подключение к БД:"
+    echo "   docker-compose exec postgres psql -U flibusta -d flibusta -c 'SELECT 1;'"
+    echo ""
+    echo "5. Проверьте пароль БД:"
+    echo "   cat secrets/flibusta_pwd.txt"
+    echo "   grep FLIBUSTA_DBPASSWORD .env"
+    echo ""
     exit 1
 fi

@@ -39,13 +39,23 @@ $dsn = match($dbtype) {
 	default => "pgsql:host=".$dbhost.";dbname=".$dbname.";options='--client_encoding=UTF8'"
 };
 
+$dbh = null;
 try {
 	$dbh = new PDO($dsn, $dbuser, $dbpasswd);
 	$dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 	$dbh->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 	$dbh->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_OBJ);
+} catch(PDOException $e) {
+	// Логируем ошибку вместо вывода, чтобы не нарушать HTTP заголовки
+	$error_msg = "Ошибка подключения к БД: " . $e->getMessage() . " (DSN: $dsn, User: $dbuser)";
+	error_log($error_msg);
+	// Устанавливаем $dbh в null для предотвращения использования неинициализированного объекта
+	$dbh = null;
 } catch(Exception $e) {
-	print_r($e);
+	// Обработка других исключений
+	$error_msg = "Критическая ошибка при подключении к БД: " . $e->getMessage();
+	error_log($error_msg);
+	$dbh = null;
 }
 
 ?>

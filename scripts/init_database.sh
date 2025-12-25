@@ -417,35 +417,72 @@ fi
 # Создание индекса zip-файлов
 log_info "Создание индекса zip-файлов..."
 if [ -f "/application/tools/app_update_zip_list.php" ]; then
-    # Если мы внутри контейнера php-fpm, выполняем напрямую
-    if [ $INSIDE_CONTAINER -eq 1 ] && command -v php > /dev/null 2>&1; then
-        log_info "Попытка создания индекса локально (внутри контейнера)..."
-        if php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
-            log_success "Индекс zip-файлов создан"
-        else
-            log_warning "Не удалось создать индекс zip-файлов локально"
-        fi
+    # Проверка существования директории с книгами
+    BOOKS_DIR="${FLIBUSTA_BOOKS_PATH:-/application/flibusta}"
+    if [ ! -d "$BOOKS_DIR" ]; then
+        log_warning "Директория с книгами не найдена: $BOOKS_DIR"
+        log_info "Индекс zip-файлов будет пропущен. Создайте директорию и запустите индексацию позже."
+    elif [ ! -r "$BOOKS_DIR" ]; then
+        log_warning "Нет прав на чтение директории с книгами: $BOOKS_DIR"
+        log_info "Индекс zip-файлов будет пропущен. Проверьте права доступа."
     else
-        # Проверка готовности php-fpm перед использованием
-        php_fpm_ready=0
-        for i in 1 2 3 4 5 10; do
-            if $COMPOSE_CMD exec -T php-fpm sh -c "test -f /application/tools/app_update_zip_list.php && php -v > /dev/null 2>&1" > /dev/null 2>&1; then
-                php_fpm_ready=1
-                break
-            fi
-            sleep 1
-        done
-        
-        if [ $php_fpm_ready -eq 1 ]; then
-            log_info "Попытка создания индекса через php-fpm..."
-            if $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
-                log_success "Индекс zip-файлов создан"
+        # Если мы внутри контейнера php-fpm, выполняем напрямую
+        if [ $INSIDE_CONTAINER -eq 1 ] && command -v php > /dev/null 2>&1; then
+            log_info "Попытка создания индекса локально (внутри контейнера)..."
+            # Проверяем, что PHP может подключиться к БД
+            if php -r "require '/application/dbinit.php'; exit(isset(\$dbh) && \$dbh !== null ? 0 : 1);" > /dev/null 2>&1; then
+                if php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
+                    log_success "Индекс zip-файлов создан"
+                else
+                    log_warning "Не удалось создать индекс zip-файлов локально (код выхода: $?)"
+                    log_info "Проверьте логи: tail -n 50 $LOG_FILE"
+                fi
             else
-                log_warning "Не удалось создать индекс zip-файлов через php-fpm"
+                log_warning "Не удалось проверить подключение к БД для создания индекса"
             fi
         else
-            log_warning "php-fpm не готов, пропуск создания индекса zip-файлов"
-            log_info "Индекс можно создать позже через веб-интерфейс или вручную"
+            # Проверка готовности php-fpm перед использованием
+            php_fpm_ready=0
+            max_php_attempts=30
+            log_info "Ожидание готовности php-fpm для создания индекса..."
+            
+            for i in $(seq 1 $max_php_attempts); do
+                # Проверяем, что контейнер запущен и PHP доступен
+                if $COMPOSE_CMD exec -T php-fpm sh -c "test -f /application/tools/app_update_zip_list.php && php -v > /dev/null 2>&1 && test -d /application/flibusta" > /dev/null 2>&1; then
+                    # Дополнительная проверка: можем ли мы подключиться к БД через PHP
+                    if $COMPOSE_CMD exec -T php-fpm php -r "require '/application/dbinit.php'; exit(isset(\$dbh) && \$dbh !== null ? 0 : 1);" > /dev/null 2>&1; then
+                        php_fpm_ready=1
+                        log_success "php-fpm готов для создания индекса"
+                        break
+                    fi
+                fi
+                
+                if [ $((i % 5)) -eq 0 ]; then
+                    log_info "Ожидание готовности php-fpm... (попытка $i/$max_php_attempts)"
+                fi
+                sleep 2
+            done
+            
+            if [ $php_fpm_ready -eq 1 ]; then
+                log_info "Попытка создания индекса через php-fpm..."
+                # Увеличиваем таймаут для длительной операции
+                if timeout 3600 $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php >>"$LOG_FILE" 2>&1; then
+                    log_success "Индекс zip-файлов создан"
+                else
+                    local zip_exit_code=$?
+                    if [ $zip_exit_code -eq 124 ]; then
+                        log_warning "Таймаут при создании индекса zip-файлов (операция заняла более 1 часа)"
+                    else
+                        log_warning "Не удалось создать индекс zip-файлов через php-fpm (код выхода: $zip_exit_code)"
+                    fi
+                    log_info "Проверьте логи: $COMPOSE_CMD exec php-fpm tail -n 50 $LOG_FILE"
+                    log_info "Индекс можно создать позже через веб-интерфейс (Сервис -> Обновить базу) или вручную"
+                fi
+            else
+                log_warning "php-fpm не готов после $max_php_attempts попыток, пропуск создания индекса zip-файлов"
+                log_info "Индекс можно создать позже через веб-интерфейс (Сервис -> Обновить базу) или вручную:"
+                log_info "  $COMPOSE_CMD exec php-fpm php /application/tools/app_update_zip_list.php"
+            fi
         fi
     fi
 else
