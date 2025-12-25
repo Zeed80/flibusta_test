@@ -45,10 +45,16 @@ log_info() {
     echo -e "${BLUE}ℹ $message${NC}" | tee -a "$LOG_FILE" 2>/dev/null || echo "$message"
 }
 
-# Определение команды docker-compose
+# Определение команды docker-compose (для проверки статуса контейнеров)
 COMPOSE_CMD="docker-compose"
 if ! command -v docker-compose &> /dev/null; then
     COMPOSE_CMD="docker compose"
+fi
+
+# Проверяем, запущен ли скрипт внутри контейнера
+INSIDE_CONTAINER=0
+if [ -f "/.dockerenv" ] || [ -n "${DOCKER_CONTAINER:-}" ]; then
+    INSIDE_CONTAINER=1
 fi
 
 # Загрузка переменных окружения и пароля из dbinit.sh
@@ -112,21 +118,24 @@ max_attempts=60
 # Параметры подключения
 DB_USER="${FLIBUSTA_DBUSER:-flibusta}"
 DB_NAME="${FLIBUSTA_DBNAME:-flibusta}"
+DB_HOST="${FLIBUSTA_DBHOST:-postgres}"
 
 while [ $i -le $max_attempts ]; do
     # Проверяем доступность сервера
-    if $COMPOSE_CMD exec -T postgres pg_isready -U "$DB_USER" -d "$DB_NAME" > /dev/null 2>&1; then
-        # Пробуем подключиться с паролем
-        export PGPASSWORD="$PGPASSWORD"
-        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
-            postgres_ready=1
-            log_success "PostgreSQL готов и доступен"
-            break
-        else
-            # Если не получилось с основным паролем, пробуем дефолтный (на случай первого запуска)
-            if [ "$PGPASSWORD" != "flibusta" ]; then
-                export PGPASSWORD="flibusta"
-                if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+    if [ $INSIDE_CONTAINER -eq 1 ]; then
+        # Если мы внутри контейнера, используем прямое подключение
+        if pg_isready -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" > /dev/null 2>&1; then
+            # Пробуем подключиться с паролем
+            export PGPASSWORD="$PGPASSWORD"
+            if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                postgres_ready=1
+                log_success "PostgreSQL готов и доступен"
+                break
+            else
+                # Если не получилось с основным паролем, пробуем дефолтный (на случай первого запуска)
+                if [ "$PGPASSWORD" != "flibusta" ]; then
+                    export PGPASSWORD="flibusta"
+                    if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
                     log_warning "Подключение с дефолтным паролем успешно, обновляем пароль в БД..."
                     # Получаем правильный пароль
                     correct_password=""
@@ -139,11 +148,11 @@ while [ $i -le $max_attempts ]; do
                     if [ -n "$correct_password" ] && [ "$correct_password" != "flibusta" ]; then
                         # Обновляем пароль на правильный
                         escaped_password=$(echo "$correct_password" | sed "s/'/''/g" 2>/dev/null || echo "$correct_password")
-                        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "postgres" -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" > /dev/null 2>&1; then
+                        if psql -h "$DB_HOST" -U "$DB_USER" -d "postgres" -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" > /dev/null 2>&1; then
                             log_success "Пароль в БД обновлен"
                             export PGPASSWORD="$correct_password"
                             sleep 1
-                            if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                            if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
                                 postgres_ready=1
                                 log_success "Подключение с обновленным паролем успешно"
                                 break
@@ -191,11 +200,20 @@ done
 if [ $postgres_ready -eq 1 ]; then
     log_info "Финальная проверка доступности базы данных..."
     export PGPASSWORD="$PGPASSWORD"
-    if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
-        log_success "База данных доступна и работает"
+    if [ $INSIDE_CONTAINER -eq 1 ]; then
+        if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+            log_success "База данных доступна и работает"
+        else
+            log_error "База данных недоступна после проверки готовности"
+            exit 1
+        fi
     else
-        log_error "База данных недоступна после проверки готовности"
-        exit 1
+        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+            log_success "База данных доступна и работает"
+        else
+            log_error "База данных недоступна после проверки готовности"
+            exit 1
+        fi
     fi
 fi
 
@@ -302,16 +320,29 @@ for sql_file in $SQL_FILES; do
         export PGPASSWORD="$PGPASSWORD"
         error_output=$(mktemp /tmp/psql_error_XXXXXX 2>/dev/null || echo "/tmp/psql_error_$$")
         
-        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f "/application/sql/$sql_file" > "$error_output" 2>&1; then
-            log_success "Импорт $sql_file завершен (через psql)"
-            IMPORTED_FILES=$((IMPORTED_FILES + 1))
-            import_success=1
-            rm -f "$error_output"
-        else
-            error_details=$(cat "$error_output" 2>/dev/null || echo "Не удалось прочитать детали ошибки")
-            log_error "Ошибка импорта $sql_file (через psql)" "$error_details"
-            FAILED_FILES="$FAILED_FILES$sql_file "
-            rm -f "$error_output"
+        if [ $INSIDE_CONTAINER -eq 1 ]; then
+            if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "/application/sql/$sql_file" > "$error_output" 2>&1; then
+                log_success "Импорт $sql_file завершен (через psql)"
+                IMPORTED_FILES=$((IMPORTED_FILES + 1))
+                import_success=1
+                rm -f "$error_output"
+            else
+                error_details=$(cat "$error_output" 2>/dev/null || echo "Не удалось прочитать детали ошибки")
+                log_error "Ошибка импорта $sql_file (через psql)" "$error_details"
+                FAILED_FILES="$FAILED_FILES$sql_file "
+                rm -f "$error_output"
+            fi
+        elif $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f "/application/sql/$sql_file" > "$error_output" 2>&1; then
+                log_success "Импорт $sql_file завершен (через psql)"
+                IMPORTED_FILES=$((IMPORTED_FILES + 1))
+                import_success=1
+                rm -f "$error_output"
+            else
+                error_details=$(cat "$error_output" 2>/dev/null || echo "Не удалось прочитать детали ошибки")
+                log_error "Ошибка импорта $sql_file (через psql)" "$error_details"
+                FAILED_FILES="$FAILED_FILES$sql_file "
+                rm -f "$error_output"
+            fi
         fi
     fi
 done
@@ -328,8 +359,14 @@ if [ -f "/application/tools/cleanup_db.sql" ]; then
             log_warning "Ошибка при выполнении cleanup_db.sql (не критично)"
         fi
     else
-        log_info "Использование psql через docker-compose для cleanup_db.sql"
-        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f /application/tools/cleanup_db.sql >>"$LOG_FILE" 2>&1; then
+        log_info "Использование psql для cleanup_db.sql"
+        if [ $INSIDE_CONTAINER -eq 1 ]; then
+            if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f /application/tools/cleanup_db.sql >>"$LOG_FILE" 2>&1; then
+                log_success "Очистка БД завершена"
+            else
+                log_warning "Ошибка при выполнении cleanup_db.sql (не критично)"
+            fi
+        elif $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f /application/tools/cleanup_db.sql >>"$LOG_FILE" 2>&1; then
             log_success "Очистка БД завершена"
         else
             log_warning "Ошибка при выполнении cleanup_db.sql (не критично)"
@@ -351,8 +388,14 @@ if [ -f "/application/tools/update_vectors.sql" ]; then
             log_warning "Ошибка при обновлении индексов (не критично)"
         fi
     else
-        log_info "Использование psql через docker-compose для update_vectors.sql"
-        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f /application/tools/update_vectors.sql >>"$LOG_FILE" 2>&1; then
+        log_info "Использование psql для update_vectors.sql"
+        if [ $INSIDE_CONTAINER -eq 1 ]; then
+            if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f /application/tools/update_vectors.sql >>"$LOG_FILE" 2>&1; then
+                log_success "Обновление индексов завершено"
+            else
+                log_warning "Ошибка при обновлении индексов (не критично)"
+            fi
+        elif $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f /application/tools/update_vectors.sql >>"$LOG_FILE" 2>&1; then
             log_success "Обновление индексов завершено"
         else
             log_warning "Ошибка при обновлении индексов (не критично)"
