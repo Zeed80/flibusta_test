@@ -18,6 +18,7 @@ cache/*
 .DS_Store
 Thumbs.db
 install.log
+*.bak
 
 # IDE
 .idea/

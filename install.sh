@@ -23,6 +23,9 @@ QUICK_MODE=0
 DOWNLOAD_SQL=0
 DOWNLOAD_COVERS=0
 UPDATE_LIBRARY=0
+ENABLE_HTTPS=0
+DOMAIN=""
+SSL_EMAIL=""
 
 # Логирование (определяем первым, так как используется другими функциями)
 LOG_FILE="install.log"
@@ -265,6 +268,29 @@ interactive_setup() {
         UPDATE_LIBRARY=0
     fi
     
+    # Настройка HTTPS
+    echo ""
+    echo "10. Настройка HTTPS (SSL):"
+    read -p "   Включить HTTPS с Let's Encrypt? [y/N]: " enable_https_choice
+    enable_https_choice=${enable_https_choice:-N}
+    if [[ "$enable_https_choice" =~ ^[Yy]$ ]]; then
+        ENABLE_HTTPS=1
+        
+        read -p "   Введите доменное имя (например: books.example.com): " domain_input
+        if [ -n "$domain_input" ]; then
+            DOMAIN="$domain_input"
+        fi
+        
+        read -p "   Введите email для Let's Encrypt (для уведомлений): " email_input
+        if [ -n "$email_input" ]; then
+            SSL_EMAIL="$email_input"
+        else
+            SSL_EMAIL=""
+        fi
+    else
+        ENABLE_HTTPS=0
+    fi
+    
     echo ""
 }
 
@@ -313,6 +339,24 @@ EOF
     fi
     
     sed -i "s/FLIBUSTA_PORT=.*/FLIBUSTA_PORT=$WEB_PORT/" .env
+    
+    # Добавляем HTTPS настройки в .env
+    if [ $ENABLE_HTTPS -eq 1 ] && [ -n "$DOMAIN" ]; then
+        if grep -q "^FLIBUSTA_DOMAIN=" .env; then
+            sed -i "s|^FLIBUSTA_DOMAIN=.*|FLIBUSTA_DOMAIN=$DOMAIN|" .env
+        else
+            echo "FLIBUSTA_DOMAIN=$DOMAIN" >> .env
+        fi
+        
+        if [ -n "$SSL_EMAIL" ]; then
+            if grep -q "^FLIBUSTA_SSL_EMAIL=" .env; then
+                sed -i "s|^FLIBUSTA_SSL_EMAIL=.*|FLIBUSTA_SSL_EMAIL=$SSL_EMAIL|" .env
+            else
+                echo "FLIBUSTA_SSL_EMAIL=$SSL_EMAIL" >> .env
+            fi
+        fi
+    fi
+    
     sed -i "s/FLIBUSTA_DB_PORT=.*/FLIBUSTA_DB_PORT=$DB_PORT/" .env
     
     # Сохранение путей если они были изменены
@@ -1207,6 +1251,481 @@ init_database() {
     fi
 }
 
+# Проверка наличия certbot
+check_certbot() {
+    if command -v certbot &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Установка certbot
+install_certbot() {
+    log "${BLUE}Установка certbot...${NC}"
+    
+    if check_certbot; then
+        log "${GREEN}✓ Certbot уже установлен${NC}"
+        return 0
+    fi
+    
+    # Определяем дистрибутив
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+    else
+        log "${RED}✗ Не удалось определить дистрибутив${NC}"
+        return 1
+    fi
+    
+    case $OS in
+        ubuntu|debian)
+            log "${BLUE}Установка certbot для Ubuntu/Debian...${NC}"
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update -qq
+                if sudo apt-get install -y certbot python3-certbot-nginx >/dev/null 2>&1; then
+                    log "${GREEN}✓ Certbot установлен${NC}"
+                    return 0
+                else
+                    log "${RED}✗ Ошибка при установке certbot${NC}"
+                    return 1
+                fi
+            else
+                log "${RED}✗ apt-get не найден${NC}"
+                return 1
+            fi
+            ;;
+        centos|rhel|fedora)
+            log "${BLUE}Установка certbot для CentOS/RHEL/Fedora...${NC}"
+            if command -v yum &> /dev/null; then
+                if sudo yum install -y certbot python3-certbot-nginx >/dev/null 2>&1; then
+                    log "${GREEN}✓ Certbot установлен${NC}"
+                    return 0
+                else
+                    log "${RED}✗ Ошибка при установке certbot${NC}"
+                    return 1
+                fi
+            elif command -v dnf &> /dev/null; then
+                if sudo dnf install -y certbot python3-certbot-nginx >/dev/null 2>&1; then
+                    log "${GREEN}✓ Certbot установлен${NC}"
+                    return 0
+                else
+                    log "${RED}✗ Ошибка при установке certbot${NC}"
+                    return 1
+                fi
+            else
+                log "${RED}✗ yum/dnf не найден${NC}"
+                return 1
+            fi
+            ;;
+        *)
+            log "${YELLOW}⚠ Неизвестный дистрибутив: $OS${NC}"
+            log "${YELLOW}Установите certbot вручную:${NC}"
+            log "${YELLOW}  Ubuntu/Debian: sudo apt-get install certbot python3-certbot-nginx${NC}"
+            log "${YELLOW}  CentOS/RHEL: sudo yum install certbot python3-certbot-nginx${NC}"
+            return 1
+            ;;
+    esac
+}
+
+# Открытие портов в firewall
+setup_firewall_ports() {
+    log "${BLUE}Настройка firewall для портов 80 и 443...${NC}"
+    
+    # Проверка UFW (Ubuntu/Debian)
+    if command -v ufw &> /dev/null; then
+        log "${BLUE}Использование UFW...${NC}"
+        if sudo ufw status | grep -q "Status: active"; then
+            sudo ufw allow 80/tcp >/dev/null 2>&1
+            sudo ufw allow 443/tcp >/dev/null 2>&1
+            log "${GREEN}✓ Порты 80 и 443 открыты в UFW${NC}"
+        else
+            log "${YELLOW}⚠ UFW не активен, порты не открыты${NC}"
+            log "${YELLOW}Активируйте UFW вручную: sudo ufw enable${NC}"
+        fi
+        return 0
+    fi
+    
+    # Проверка firewalld (CentOS/RHEL/Fedora)
+    if command -v firewall-cmd &> /dev/null; then
+        log "${BLUE}Использование firewalld...${NC}"
+        if sudo firewall-cmd --state 2>/dev/null | grep -q "running"; then
+            sudo firewall-cmd --permanent --add-service=http >/dev/null 2>&1
+            sudo firewall-cmd --permanent --add-service=https >/dev/null 2>&1
+            sudo firewall-cmd --reload >/dev/null 2>&1
+            log "${GREEN}✓ Порты 80 и 443 открыты в firewalld${NC}"
+        else
+            log "${YELLOW}⚠ firewalld не активен, порты не открыты${NC}"
+        fi
+        return 0
+    fi
+    
+    # Проверка iptables
+    if command -v iptables &> /dev/null; then
+        log "${YELLOW}⚠ Обнаружен iptables, но автоматическая настройка не выполняется${NC}"
+        log "${YELLOW}Откройте порты вручную:${NC}"
+        log "${YELLOW}  sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT${NC}"
+        log "${YELLOW}  sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT${NC}"
+        return 0
+    fi
+    
+    log "${YELLOW}⚠ Firewall не обнаружен, пропускаем настройку портов${NC}"
+    return 0
+}
+
+# Обновление домена в nginx конфигурации
+update_nginx_domain() {
+    local domain=$1
+    local nginx_conf="phpdocker/nginx/nginx.conf"
+    
+    if [ ! -f "$nginx_conf" ]; then
+        log "${RED}✗ Файл конфигурации nginx не найден: $nginx_conf${NC}"
+        return 1
+    fi
+    
+    log "${BLUE}Обновление домена в nginx конфигурации...${NC}"
+    
+    # Заменяем server_name _; на server_name $domain;
+    if sed -i.bak "s/server_name _;/server_name $domain;/" "$nginx_conf" 2>/dev/null; then
+        log "${GREEN}✓ Домен обновлен в nginx конфигурации: $domain${NC}"
+        return 0
+    else
+        log "${RED}✗ Ошибка при обновлении домена в nginx конфигурации${NC}"
+        return 1
+    fi
+}
+
+# Создание директории для certbot
+create_certbot_dir() {
+    log "${BLUE}Создание директории для certbot...${NC}"
+    
+    if sudo mkdir -p /var/www/certbot 2>/dev/null; then
+        if sudo chmod 755 /var/www/certbot 2>/dev/null; then
+            log "${GREEN}✓ Директория /var/www/certbot создана${NC}"
+            return 0
+        else
+            log "${YELLOW}⚠ Директория создана, но не удалось установить права${NC}"
+            return 0
+        fi
+    else
+        log "${RED}✗ Ошибка при создании директории /var/www/certbot${NC}"
+        return 1
+    fi
+}
+
+# Получение SSL сертификата
+get_ssl_certificate() {
+    local domain=$1
+    local email=$2
+    
+    if [ -z "$domain" ]; then
+        log "${RED}✗ Домен не указан${NC}"
+        return 1
+    fi
+    
+    log "${BLUE}Получение SSL сертификата для домена: $domain${NC}"
+    
+    # Создаем директорию для certbot
+    create_certbot_dir
+    
+    # Параметры для certbot
+    local certbot_args="--webroot -w /var/www/certbot -d $domain --non-interactive --agree-tos"
+    
+    if [ -n "$email" ]; then
+        certbot_args="$certbot_args --email $email"
+    else
+        certbot_args="$certbot_args --register-unsafely-without-email"
+    fi
+    
+    # Получаем сертификат
+    if sudo certbot certonly $certbot_args 2>&1 | tee -a "$LOG_FILE"; then
+        log "${GREEN}✓ SSL сертификат получен для домена: $domain${NC}"
+        return 0
+    else
+        log "${RED}✗ Ошибка при получении SSL сертификата${NC}"
+        log "${YELLOW}Убедитесь, что:${NC}"
+        log "${YELLOW}  1. Домен указывает на IP этого сервера${NC}"
+        log "${YELLOW}  2. Порт 80 доступен из интернета${NC}"
+        log "${YELLOW}  3. Nginx запущен и доступен${NC}"
+        return 1
+    fi
+}
+
+# Настройка nginx для HTTPS
+configure_nginx_ssl() {
+    local domain=$1
+    local nginx_conf="phpdocker/nginx/nginx.conf"
+    
+    if [ ! -f "$nginx_conf" ]; then
+        log "${RED}✗ Файл конфигурации nginx не найден: $nginx_conf${NC}"
+        return 1
+    fi
+    
+    log "${BLUE}Настройка nginx для HTTPS...${NC}"
+    
+    # Проверяем, есть ли уже блок SSL
+    if grep -q "listen 443 ssl" "$nginx_conf"; then
+        log "${YELLOW}⚠ Блок SSL уже существует в конфигурации nginx${NC}"
+        return 0
+    fi
+    
+    # Создаем резервную копию
+    cp "$nginx_conf" "${nginx_conf}.ssl.bak"
+    
+    # Добавляем блок SSL после блока HTTP (после закрывающей скобки первого server)
+    # Используем awk для вставки нового блока
+    local ssl_block=$(cat <<'EOF'
+    # HTTPS сервер
+    server {
+        listen 443 ssl http2;
+        server_name DOMAIN_PLACEHOLDER;
+
+        client_max_body_size 508M;
+
+        # SSL сертификаты
+        ssl_certificate /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/DOMAIN_PLACEHOLDER/privkey.pem;
+
+        # SSL настройки
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        # Gzip сжатие
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss application/x-javascript application/rss+xml;
+        gzip_disable "msie6";
+
+        root /application/public;
+        index index.php;
+
+        # HTTP Security Headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+        # CSP (Content Security Policy)
+        add_header 'Content-Security-Policy' 'default-src * data: blob:; script-src *; style-src * unsafe-inline; img-src * data: blob:; font-src *; connect-src *; worker-src * blob:; frame-src *;' always;
+
+        # Let's Encrypt ACME Challenge
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+            allow all;
+            try_files $uri =404;
+            access_log off;
+            log_not_found off;
+        }
+
+        # Основные location блоки
+        location / {
+            limit_req zone=general burst=20 nodelay;
+            limit_conn conn_limit 10;
+            
+            try_files $uri /index.php$is_args$args;
+        }
+
+        location /opds/ {
+            limit_req zone=api burst=50 nodelay;
+            limit_conn conn_limit 15;
+            
+            try_files $uri /index.php$is_args$args;
+        }
+
+        location /service/ {
+            limit_req zone=api burst=10 nodelay;
+            limit_conn conn_limit 5;
+            
+            try_files $uri /index.php$is_args$args;
+        }
+
+        location ~ \.php$ {
+            limit_req zone=general burst=20 nodelay;
+            limit_conn conn_limit 10;
+            
+            add_header 'Content-Security-Policy' 'worker-src * blob:';
+
+            fastcgi_pass php-fpm:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param PHP_VALUE "error_log=/var/log/nginx/application_php_errors.log";
+            fastcgi_buffers 16 16k;
+            fastcgi_buffer_size 32k;
+            include fastcgi_params;
+            
+            fastcgi_read_timeout 300;
+            fastcgi_send_timeout 300;
+        }
+        
+        location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot|otf)$ {
+            expires 1y;
+            access_log off;
+            add_header Cache-Control "public, immutable";
+            limit_rate 0;
+        }
+
+        location ~ /\.(?!well-known) {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        location ~ /\.(?:git|env|htaccess)$ {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        location ~* \.(?:bak|config|sql|fla|psw|ini|log|sh|inc|swp)$ {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        error_page 429 /429.html;
+        location = /429.html {
+            root /var/www/html;
+            internal;
+            default_type text/plain;
+            return 429 "Too Many Requests - Slow down!";
+        }
+
+        location /health {
+            access_log off;
+            return 200 "OK";
+            add_header Content-Type text/plain;
+            limit_rate 0;
+        }
+
+        location /nginx_status {
+            stub_status on;
+            access_log off;
+            allow 127.0.0.1;
+            allow 172.16.0.0/12;
+            allow 10.0.0.0/8;
+            deny all;
+            limit_rate 0;
+        }
+    }
+
+    # Редирект HTTP на HTTPS
+    server {
+        listen 80;
+        server_name DOMAIN_PLACEHOLDER;
+        
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+            allow all;
+            try_files $uri =404;
+            access_log off;
+            log_not_found off;
+        }
+        
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+EOF
+)
+    
+    # Заменяем placeholder на реальный домен
+    ssl_block=$(echo "$ssl_block" | sed "s/DOMAIN_PLACEHOLDER/$domain/g")
+    
+    # Вставляем блок SSL перед закрывающей скобкой http блока
+    # Ищем последний закрывающий блок } перед закрывающей скобкой http {
+    local temp_file=$(mktemp)
+    
+    # Используем awk для вставки SSL блока перед последней закрывающей скобкой http блока
+    awk -v ssl="$ssl_block" '
+    /^}$/ {
+        if (in_http && !ssl_added) {
+            print ssl
+            ssl_added = 1
+        }
+        in_http = 0
+    }
+    /^http {/ {
+        in_http = 1
+    }
+    {
+        print
+    }
+    END {
+        if (!ssl_added && in_http) {
+            print ssl
+        }
+    }
+    ' "$nginx_conf" > "$temp_file" && mv "$temp_file" "$nginx_conf"
+    
+    if [ $? -eq 0 ]; then
+        log "${GREEN}✓ Конфигурация nginx обновлена для HTTPS${NC}"
+        return 0
+    else
+        log "${RED}✗ Ошибка при обновлении конфигурации nginx${NC}"
+        # Восстанавливаем из резервной копии
+        mv "${nginx_conf}.ssl.bak" "$nginx_conf"
+        return 1
+    fi
+}
+
+# Главная функция настройки HTTPS
+setup_https() {
+    if [ $ENABLE_HTTPS -eq 0 ]; then
+        return 0
+    fi
+    
+    if [ -z "$DOMAIN" ]; then
+        log "${YELLOW}⚠ HTTPS включен, но домен не указан, пропускаем настройку${NC}"
+        return 0
+    fi
+    
+    log "${BLUE}Настройка HTTPS для домена: $DOMAIN${NC}"
+    
+    # Установка certbot
+    if ! install_certbot; then
+        log "${YELLOW}⚠ Не удалось установить certbot, пропускаем настройку HTTPS${NC}"
+        return 1
+    fi
+    
+    # Открытие портов в firewall
+    setup_firewall_ports
+    
+    # Обновление домена в nginx конфигурации
+    update_nginx_domain "$DOMAIN"
+    
+    # Перезапуск nginx для применения изменений (если контейнеры уже запущены)
+    local compose_cmd=$(get_compose_cmd)
+    if $compose_cmd ps webserver 2>/dev/null | grep -q "Up"; then
+        log "${BLUE}Перезапуск nginx...${NC}"
+        $compose_cmd restart webserver >/dev/null 2>&1
+        sleep 5
+    fi
+    
+    # Получение SSL сертификата
+    if ! get_ssl_certificate "$DOMAIN" "$SSL_EMAIL"; then
+        log "${YELLOW}⚠ Не удалось получить SSL сертификат${NC}"
+        log "${YELLOW}Вы можете получить сертификат позже вручную:${NC}"
+        log "${YELLOW}  sudo certbot certonly --webroot -w /var/www/certbot -d $DOMAIN${NC}"
+        return 1
+    fi
+    
+    # Настройка nginx для HTTPS
+    if ! configure_nginx_ssl "$DOMAIN"; then
+        log "${YELLOW}⚠ Не удалось настроить nginx для HTTPS${NC}"
+        return 1
+    fi
+    
+    log "${GREEN}✓ HTTPS настроен для домена: $DOMAIN${NC}"
+    return 0
+}
+
 # Проверка установки
 verify_installation() {
     log "${BLUE}Проверка установки...${NC}"
@@ -1546,11 +2065,24 @@ main() {
     # Не критично, только информационно
     verify_installation || log "${YELLOW}⚠ Проверка установки завершилась с предупреждениями${NC}"
     
+    # Настройка HTTPS (после запуска контейнеров)
+    if [ $ENABLE_HTTPS -eq 1 ] && [ -n "$DOMAIN" ]; then
+        log "${BLUE}Начинаем настройку HTTPS...${NC}"
+        setup_https || log "${YELLOW}⚠ Настройка HTTPS не завершена, выполните вручную позже${NC}"
+    fi
+    
     echo ""
     echo -e "${GREEN}Установка завершена!${NC}"
     echo ""
-    echo "Веб-интерфейс: http://localhost:$WEB_PORT"
-    echo "OPDS каталог: http://localhost:$WEB_PORT/opds/"
+    if [ $ENABLE_HTTPS -eq 1 ] && [ -n "$DOMAIN" ]; then
+        echo "Веб-интерфейс: https://$DOMAIN"
+        echo "OPDS каталог: https://$DOMAIN/opds/"
+        echo ""
+        echo -e "${YELLOW}HTTP автоматически перенаправляется на HTTPS${NC}"
+    else
+        echo "Веб-интерфейс: http://localhost:$WEB_PORT"
+        echo "OPDS каталог: http://localhost:$WEB_PORT/opds/"
+    fi
     
     if [ -n "$DB_PASSWORD" ] && [ $QUICK_MODE -eq 0 ]; then
         echo ""
