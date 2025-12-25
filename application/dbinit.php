@@ -5,17 +5,23 @@ $dbuser = getenv('FLIBUSTA_DBUSER')?getenv('FLIBUSTA_DBUSER'):'flibusta';
 $dbpasswd = '';
 
 // Приоритет 1: Чтение из файла секрета (Docker secrets)
+// Сначала пробуем скопированную версию в /tmp (доступна для www-data)
+$secretFiles = [];
 if (getenv('FLIBUSTA_DBPASSWORD_FILE')) {
-	$passwordFile = getenv('FLIBUSTA_DBPASSWORD_FILE');
+	$secretFiles[] = getenv('FLIBUSTA_DBPASSWORD_FILE');
+}
+// Добавляем скопированную версию в /tmp (создается в fix_permissions.sh)
+$secretFiles[] = '/tmp/flibusta_pwd.txt';
+
+foreach ($secretFiles as $passwordFile) {
 	if (file_exists($passwordFile) && is_readable($passwordFile)) {
 		$dbpasswd = file_get_contents($passwordFile);
 		if ($dbpasswd !== false) {
 			$dbpasswd = trim($dbpasswd);
-		} else {
-			error_log("Не удалось прочитать пароль из файла секрета: $passwordFile");
+			if (!empty($dbpasswd)) {
+				break; // Найден рабочий пароль
+			}
 		}
-	} else {
-		error_log("Файл секрета не найден или недоступен: $passwordFile (существует: " . (file_exists($passwordFile) ? 'да' : 'нет') . ", читаемый: " . (is_readable($passwordFile) ? 'да' : 'нет') . ")");
 	}
 }
 

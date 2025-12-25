@@ -97,6 +97,18 @@ fix_permissions_internal() {
     fi
     mkdir -p "$CACHE_DIR"/{authors,covers,tmp,opds} 2>/dev/null || true
     mkdir -p "$SQL_DIR"/psql 2>/dev/null || true
+    
+    # Копирование Docker secret в доступное место (только в Docker контейнере)
+    if [ "$IN_DOCKER" = "true" ] && [ -f "/run/secrets/FLIBUSTA_PWD" ]; then
+        # Копируем секрет в /tmp с правами для www-data
+        if cp /run/secrets/FLIBUSTA_PWD /tmp/flibusta_pwd.txt 2>/dev/null; then
+            chmod 644 /tmp/flibusta_pwd.txt 2>/dev/null || true
+            chown www-data:www-data /tmp/flibusta_pwd.txt 2>/dev/null || true
+            if [ "$quiet" != "true" ]; then
+                echo -e "${GREEN}✓ Секрет БД скопирован в доступное место${NC}"
+            fi
+        fi
+    fi
 
     # Установка прав на директории
     if [ "$quiet" != "true" ]; then
