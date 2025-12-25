@@ -2,12 +2,18 @@
 $dbname = getenv('FLIBUSTA_DBNAME')?getenv('FLIBUSTA_DBNAME'):'flibusta';
 $dbhost = getenv('FLIBUSTA_DBHOST')?getenv('FLIBUSTA_DBHOST'):'postgres';
 $dbuser = getenv('FLIBUSTA_DBUSER')?getenv('FLIBUSTA_DBUSER'):'flibusta';
-if (getenv('FLIBUSTA_DBPASSWORD_FILE')){
-		$dbpasswd = file_get_contents(getenv('FLIBUSTA_DBPASSWORD_FILE'));
-		if ($dbpasswd) $dbpasswd = trim($dbpasswd);
+if (getenv('FLIBUSTA_DBPASSWORD_FILE')) {
+	$passwordFile = getenv('FLIBUSTA_DBPASSWORD_FILE');
+	if (file_exists($passwordFile) && is_readable($passwordFile)) {
+		$dbpasswd = file_get_contents($passwordFile);
+		if ($dbpasswd !== false) {
+			$dbpasswd = trim($dbpasswd);
+		}
+	}
 }
-if (empty($dbpasswd))
-	$dbpasswd = getenv('FLIBUSTA_DBPASSWORD')?getenv('FLIBUSTA_DBPASSWORD'):'flibusta';
+if (empty($dbpasswd)) {
+	$dbpasswd = getenv('FLIBUSTA_DBPASSWORD') ?: 'flibusta';
+}
 
 $dbtype = getenv('FLIBUSTA_DBTYPE')?trim(strtolower(getenv('FLIBUSTA_DBTYPE'))):'postgres';
 if ($dbtype != 'postgres') { // check for valid type, currently only postgress is supported, but in the future others e.g. mysql will be added
