@@ -122,15 +122,29 @@ done
 
 # Шаг 6: Проверка подключения через PHP
 log_info "Шаг 6: Проверка подключения к БД через PHP..."
+# Проверяем, что секрет скопирован в доступное место
+if $COMPOSE_CMD exec -T php-fpm sh -c "test -f /tmp/flibusta_pwd.txt" > /dev/null 2>&1; then
+    log_success "Секрет скопирован в /tmp/flibusta_pwd.txt"
+else
+    log_warning "Секрет не найден в /tmp/flibusta_pwd.txt (возможно, entrypoint еще не выполнился)"
+fi
+
 if $COMPOSE_CMD exec -T php-fpm php -r "
 \$dbname = getenv('FLIBUSTA_DBNAME') ?: 'flibusta';
 \$dbhost = getenv('FLIBUSTA_DBHOST') ?: 'postgres';
 \$dbuser = getenv('FLIBUSTA_DBUSER') ?: 'flibusta';
 \$dbpasswd = '';
+// Пробуем прочитать из скопированного файла (доступен для www-data)
+\$secretFiles = ['/tmp/flibusta_pwd.txt'];
 if (getenv('FLIBUSTA_DBPASSWORD_FILE')) {
-    \$passwordFile = getenv('FLIBUSTA_DBPASSWORD_FILE');
+    \$secretFiles[] = getenv('FLIBUSTA_DBPASSWORD_FILE');
+}
+foreach (\$secretFiles as \$passwordFile) {
     if (file_exists(\$passwordFile) && is_readable(\$passwordFile)) {
         \$dbpasswd = trim(file_get_contents(\$passwordFile));
+        if (!empty(\$dbpasswd)) {
+            break;
+        }
     }
 }
 if (empty(\$dbpasswd)) {
