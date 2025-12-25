@@ -46,21 +46,20 @@ if [ ! -f /application/dbinit.php ]; then
     exit 1
 fi
 
-# Проверка подключения к базе данных
+# Проверка подключения к базе данных (необязательная, PHP скрипт сам проверит)
 echo -e "${YELLOW}Проверка подключения к базе данных...${NC}" >&2
 . /application/tools/dbinit.sh 2>/dev/null || true
-if [ -n "$SQL_CMD" ]; then
+if [ -n "$SQL_CMD" ] && command -v psql >/dev/null 2>&1; then
     if $SQL_CMD -c "SELECT 1;" >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ Подключение к базе данных успешно${NC}" >&2
-        echo "Подключение к базе данных успешно">>/application/cache/sql_status
+        echo -e "${GREEN}✓ Подключение к базе данных успешно (через psql)${NC}" >&2
+        echo "Подключение к базе данных успешно (через psql)">>/application/cache/sql_status
     else
-        echo -e "${RED}✗ Не удалось подключиться к базе данных${NC}" >&2
-        echo "Ошибка: Не удалось подключиться к базе данных">>/application/cache/sql_status
-        echo "=== Реиндексация завершена с ошибками (нет подключения к БД) ===" >>/application/cache/sql_status
-        exit 1
+        echo -e "${YELLOW}⚠ Не удалось проверить подключение через psql, но PHP скрипт проверит сам${NC}" >&2
+        echo "Предупреждение: Не удалось проверить подключение через psql, PHP скрипт проверит сам">>/application/cache/sql_status
     fi
 else
-    echo -e "${YELLOW}⚠ Не удалось загрузить dbinit.sh, пропускаем проверку БД${NC}" >&2
+    echo -e "${YELLOW}⚠ psql недоступен, пропускаем проверку БД (PHP скрипт проверит подключение сам)${NC}" >&2
+    echo "Информация: psql недоступен, PHP скрипт проверит подключение к БД сам">>/application/cache/sql_status
 fi
 
 # Проверка наличия PHP расширения zip
