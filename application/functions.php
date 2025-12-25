@@ -599,12 +599,13 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$genres->bindParam(":id", $b->bookid);
 	$genres->execute();
 	while ($g = $genres->fetch()) {
+		$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc) : $g->genredesc;
 		$entry->addCategory(
 			$webroot . '/subject/' . urlencode($g->genrecode),
-			$g->genredesc
+			$normalizedGenreDesc
 		);
 		// Также добавляем как dc:subject
-		$entry->addMetadata('dc', 'subject', $g->genredesc);
+		$entry->addMetadata('dc', 'subject', $normalizedGenreDesc);
 	}
 	
 	// Серии
@@ -615,17 +616,18 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$seq->bindParam(":id", $b->bookid);
 	$seq->execute();
 	while ($s = $seq->fetch()) {
-		$ssq = $s->seqname;
+		$ssq = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
 		if ($s->seqnumb > 0) {
 			$ssq .= " ($s->seqnumb)";
 		}
 		$sq .= ($sq ? ', ' : '') . $ssq;
-		$entry->addLink(new OPDSLink(
+		$link = new OPDSLink(
 			$webroot . '/opds/list?seq_id=' . $s->seqid,
 			'related',
 			OPDSVersion::getProfile($version, 'acquisition'),
 			'Все книги серии "' . $ssq . '"'
-		));
+		);
+		$entry->addLink($link);
 	}
 	if ($sq != '') {
 		$sq = "Сборник: $sq";
@@ -640,13 +642,16 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$au->execute();
 	while ($a = $au->fetch()) {
 		$authorName = trim("$a->lastname $a->firstname $a->middlename");
+		// Нормализация уже применяется в addAuthor(), но нормализуем для ссылки
+		$normalizedAuthorName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
 		$entry->addAuthor($authorName, $webroot . '/opds/author?author_id=' . $a->avtorid);
-		$entry->addLink(new OPDSLink(
+		$link = new OPDSLink(
 			$webroot . '/opds/list?author_id=' . $a->avtorid,
 			'related',
 			OPDSVersion::getProfile($version, 'acquisition'),
-			'Все книги автора ' . $authorName
-		));
+			'Все книги автора ' . $normalizedAuthorName
+		);
+		$entry->addLink($link);
 	}
 	
 	// Метаданные
@@ -750,4 +755,137 @@ function opds_book($b, $webroot = '') {
 	}
 	$entry = opds_book_entry($b, $webroot, $version);
 	echo $entry->render($version);
+}
+
+/**
+ * Нормализует текст для OPDS, оставляя только кириллицу и латиницу
+ * Удаляет диакритические знаки и нечитаемые символы
+ * 
+ * @param string $text Текст для нормализации
+ * @param bool $preserve_html Сохранять HTML структуру (для аннотаций)
+ * @return string Нормализованный текст
+ */
+function normalize_text_for_opds($text, $preserve_html = false) {
+	if (empty($text)) {
+		return $text;
+	}
+	
+	// Если нужно сохранить HTML структуру
+	if ($preserve_html) {
+		// Используем DOMDocument для обработки HTML
+		if (class_exists('DOMDocument') && function_exists('libxml_use_internal_errors')) {
+			libxml_use_internal_errors(true);
+			$dom = new DOMDocument('1.0', 'UTF-8');
+			// Добавляем теги для корректной обработки фрагментов HTML
+			$html = mb_convert_encoding($text, 'HTML-ENTITIES', 'UTF-8');
+			@$dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+			libxml_clear_errors();
+			
+			// Нормализуем текстовые узлы
+			$xpath = new DOMXPath($dom);
+			$textNodes = $xpath->query('//text()');
+			
+			foreach ($textNodes as $node) {
+				$normalized = normalize_text_for_opds($node->nodeValue, false);
+				$node->nodeValue = $normalized;
+			}
+			
+			// Извлекаем body содержимое
+			$body = $dom->getElementsByTagName('body')->item(0);
+			if ($body) {
+				$result = '';
+				foreach ($body->childNodes as $child) {
+					$result .= $dom->saveHTML($child);
+				}
+				return $result;
+			}
+		}
+		
+		// Fallback: используем регулярные выражения для простых случаев
+		$text = preg_replace_callback('/>([^<]+)</u', function($matches) {
+			$normalized = normalize_text_for_opds($matches[1], false);
+			return '>' . $normalized . '<';
+		}, $text);
+		
+		return $text;
+	}
+	
+	// Unicode нормализация (NFD -> NFC)
+	if (class_exists('Normalizer') && function_exists('normalizer_normalize')) {
+		$text = Normalizer::normalize($text, Normalizer::FORM_C);
+	}
+	
+	// Удаление диакритических знаков через транслитерацию
+	if (function_exists('iconv')) {
+		// Пробуем транслитерацию
+		$translit = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+		if ($translit !== false) {
+			$text = $translit;
+		} else {
+			// Если транслитерация не удалась, используем ручную замену
+			$text = remove_diacritics_manual($text);
+		}
+	} else {
+		// Fallback: ручная замена диакритики
+		$text = remove_diacritics_manual($text);
+	}
+	
+	// Оставляем только кириллицу, латиницу, цифры и пробелы
+	// Кириллица: \p{Cyrillic} (U+0400-U+04FF)
+	// Латиница: a-zA-Z
+	// Цифры: 0-9
+	// Пробелы и основные знаки препинания
+	$text = preg_replace('/[^\p{Cyrillic}a-zA-Z0-9\s\.,;:!?\-\(\)\[\]\"\']/u', '', $text);
+	
+	// Удаляем множественные пробелы
+	$text = preg_replace('/\s+/u', ' ', $text);
+	
+	return trim($text);
+}
+
+/**
+ * Ручная замена диакритических знаков (fallback)
+ * 
+ * @param string $text Текст для обработки
+ * @return string Текст без диакритики
+ */
+function remove_diacritics_manual($text) {
+	// Таблица замены диакритических знаков
+	$diacritics = [
+		// Латиница с диакритикой
+		'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A', 'Å' => 'A',
+		'à' => 'a', 'á' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a', 'å' => 'a',
+		'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+		'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e',
+		'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+		'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i',
+		'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+		'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+		'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
+		'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u',
+		'Ý' => 'Y', 'ý' => 'y', 'ÿ' => 'y',
+		'Ç' => 'C', 'ç' => 'c',
+		'Ñ' => 'N', 'ñ' => 'n',
+		'Œ' => 'OE', 'œ' => 'oe',
+		'Æ' => 'AE', 'æ' => 'ae',
+		'Ð' => 'D', 'ð' => 'd',
+		'Þ' => 'TH', 'þ' => 'th',
+		'Š' => 'S', 'š' => 's',
+		'Ž' => 'Z', 'ž' => 'z',
+		'Č' => 'C', 'č' => 'c',
+		'Ć' => 'C', 'ć' => 'c',
+		'Đ' => 'D', 'đ' => 'd',
+		'Ğ' => 'G', 'ğ' => 'g',
+		'İ' => 'I', 'ı' => 'i',
+		'Ł' => 'L', 'ł' => 'l',
+		'Ń' => 'N', 'ń' => 'n',
+		'Ř' => 'R', 'ř' => 'r',
+		'Ť' => 'T', 'ť' => 't',
+		'Ů' => 'U', 'ů' => 'u',
+		'Ű' => 'U', 'ű' => 'u',
+		'Ÿ' => 'Y', 'ÿ' => 'y',
+		'Ż' => 'Z', 'ż' => 'z',
+	];
+	
+	return strtr($text, $diacritics);
 }

@@ -30,7 +30,7 @@ class OPDSEntry {
     }
     
     public function setTitle($title) {
-        $this->title = $title;
+        $this->title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($title) : $title;
         return $this;
     }
     
@@ -48,26 +48,32 @@ class OPDSEntry {
     }
     
     public function setContent($content, $type = 'text') {
-        $this->content = $content;
+        // Для HTML контента сохраняем структуру, но нормализуем текст
+        $preserve_html = ($type === 'html' || $type === 'text/html');
+        $this->content = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($content, $preserve_html) : $content;
         $this->contentType = $type;
         return $this;
     }
     
     public function setSummary($summary, $type = 'text') {
-        $this->summary = $summary;
+        // Для HTML контента сохраняем структуру, но нормализуем текст
+        $preserve_html = ($type === 'html' || $type === 'text/html');
+        $this->summary = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($summary, $preserve_html) : $summary;
         $this->summaryType = $type;
         return $this;
     }
     
     public function addAuthor($name, $uri = null) {
-        $this->authors[] = ['name' => $name, 'uri' => $uri];
+        $normalizedName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($name) : $name;
+        $this->authors[] = ['name' => $normalizedName, 'uri' => $uri];
         return $this;
     }
     
     public function addCategory($term, $label = null, $scheme = null) {
+        $normalizedLabel = $label && function_exists('normalize_text_for_opds') ? normalize_text_for_opds($label) : $label;
         $this->categories[] = [
             'term' => $term,
-            'label' => $label,
+            'label' => $normalizedLabel,
             'scheme' => $scheme
         ];
         return $this;

@@ -26,8 +26,9 @@ if (! $seq_mode) {
 $stmt->bindParam(':authorid', $author_id, PDO::PARAM_INT);
 $stmt->execute();
 if ($a = $stmt->fetchObject()){
-    $author_name = ($a->nickname !='')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
+    $author_name_raw = ($a->nickname !='')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
                             :"$a->firstname  $a->middlename $a->lastname";
+    $author_name = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($author_name_raw) : $author_name_raw;
    
     if ($seq_mode) { // show list of sequences with current author's works
         $feed->setId("tag:author:$author_id:sequences");
@@ -59,9 +60,10 @@ if ($a = $stmt->fetchObject()){
         $sequences->bindParam(":aid", $author_id, PDO::PARAM_INT);
         $sequences->execute();
         while($seq = $sequences->fetchObject()){
+            $normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($seq->seqname ?? '') : ($seq->seqname ?? '');
             $entry = new OPDSEntry();
             $entry->setId("tag:seq:$seq->seqid");
-            $entry->setTitle($seq->seqname ?? '');
+            $entry->setTitle($normalizedSeqName);
             $entry->setUpdated($cdt);
             $entry->addLink(new OPDSLink(
                 $webroot . '/opds/list?seq_id=' . $seq->seqid,

@@ -61,16 +61,19 @@ if ($length_letters > 0) {
 }
 
 while ($ach = $ai->fetchObject()) {
+	// Нормализуем алфавитный индекс
+	$normalizedAlpha = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($ach->alpha) : $ach->alpha;
+	
 	$entry = new OPDSEntry();
-	$entry->setId("tag:authors:" . htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'));
-	$entry->setTitle(htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'));
+	$entry->setId("tag:authors:" . htmlspecialchars($normalizedAlpha, ENT_XML1, 'UTF-8'));
+	$entry->setTitle($normalizedAlpha);
 	$entry->setUpdated($cdt);
-	$entry->setContent("$ach->cnt авторов на " . htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'), 'text');
+	$entry->setContent("$ach->cnt авторов на " . $normalizedAlpha, 'text');
 	
 	if ($ach->cnt > 500) {
-		$url = $webroot . '/opds/authorsindex?letters=' . urlencode($ach->alpha);
+		$url = $webroot . '/opds/authorsindex?letters=' . urlencode($normalizedAlpha);
 	} else {
-		$url = $webroot . '/opds/search?by=author&q=' . urlencode($ach->alpha);
+		$url = $webroot . '/opds/search?by=author&q=' . urlencode($normalizedAlpha);
 	}
 	
 	$entry->addLink(new OPDSLink(

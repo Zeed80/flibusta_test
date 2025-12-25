@@ -36,9 +36,13 @@ $authors = $dbh->prepare("SELECT *,
 		$authors->execute();
 while ($a = $authors->fetch()) {
 	if ($a->cnt > 0) {
+		// Нормализуем имя автора
+		$authorName = trim("$a->lastname $a->firstname $a->middlename $a->nickname");
+		$normalizedAuthorName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
+		
 		echo "\n<entry> <updated>$cdt</updated>";
 		echo " <id>tag:author:$a->avtorid</id>";
-		echo " <title>$a->lastname $a->firstname $a->middlename $a->nickname</title>";
+		echo " <title>" . htmlspecialchars($normalizedAuthorName, ENT_XML1, 'UTF-8') . "</title>";
 
 		$stmt = $dbh->prepare("SELECT COUNT(*) as cnt FROM libbook,libavtor WHERE deleted='0' AND libavtor.bookid=libbook.bookid AND libavtor.avtorid=:avtorid");
 		$stmt->bindParam(":avtorid", $a->avtorid, PDO::PARAM_INT);

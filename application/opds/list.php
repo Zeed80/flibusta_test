@@ -63,7 +63,8 @@ if (isset($_GET['genre_id'])) {
 	$stmt->bindParam(":gid", $gid);
 	$stmt->execute();
 	$g = $stmt->fetch();
-	$title = "в жанре $g->genremeta: $g->genredesc";
+	$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc) : $g->genredesc;
+	$title = "в жанре $g->genremeta: $normalizedGenreDesc";
 }
 
 if (isset($_GET['seq_id'])) {
@@ -76,7 +77,8 @@ if (isset($_GET['seq_id'])) {
 	$stmt->bindParam(":sid", $sid);
 	$stmt->execute();
 	$s = $stmt->fetch();
-	$title = "в сборнике $s->seqname";
+	$normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
+	$title = "в сборнике $normalizedSeqName";
 }
 
 if (isset($_GET['author_id'])) {
@@ -104,8 +106,9 @@ if (isset($_GET['author_id'])) {
 	$stmt->bindParam(":aid", $aid);
 	$stmt->execute();
 	$a = $stmt->fetch();
-	$title = ($a->nickname != '')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
+	$authorName = ($a->nickname != '')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
 		:"$a->firstname  $a->middlename $a->lastname";
+	$title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
 }
 
 // Подсчет общего количества записей

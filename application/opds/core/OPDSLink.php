@@ -47,7 +47,7 @@ class OPDSLink {
     }
     
     public function setTitle($title) {
-        $this->title = $title;
+        $this->title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($title) : $title;
         return $this;
     }
     

@@ -60,14 +60,17 @@ if ($length_letters > 0) {
 }
 
 while ($ach = $ai->fetchObject()) {
+	// Нормализуем алфавитный индекс
+	$normalizedAlpha = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($ach->alpha) : $ach->alpha;
+	
 	if ($ach->cnt > 30) {
 		$entry = new OPDSEntry();
-		$entry->setId("tag:sequences:" . urlencode($ach->alpha));
-		$entry->setTitle(htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'));
+		$entry->setId("tag:sequences:" . urlencode($normalizedAlpha));
+		$entry->setTitle($normalizedAlpha);
 		$entry->setUpdated($cdt);
-		$entry->setContent("$ach->cnt книжных серий на " . htmlspecialchars($ach->alpha, ENT_XML1, 'UTF-8'), 'text');
+		$entry->setContent("$ach->cnt книжных серий на " . $normalizedAlpha, 'text');
 		$entry->addLink(new OPDSLink(
-			$webroot . '/opds/sequencesindex?letters=' . urlencode($ach->alpha),
+			$webroot . '/opds/sequencesindex?letters=' . urlencode($normalizedAlpha),
 			'subsection',
 			OPDSVersion::getProfile($version, 'acquisition')
 		));
@@ -81,9 +84,12 @@ while ($ach = $ai->fetchObject()) {
 		$sq->bindParam(":pattern", $ach->alpha);
 		$sq->execute();
 		while($s = $sq->fetchObject()){
+			// Нормализуем название серии
+			$normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
+			
 			$entry = new OPDSEntry();
 			$entry->setId("tag:sequence:$s->seqid");
-			$entry->setTitle(htmlspecialchars($s->seqname, ENT_XML1, 'UTF-8'));
+			$entry->setTitle($normalizedSeqName);
 			$entry->setUpdated($cdt);
 			$entry->setContent('', 'text');
 			$entry->addLink(new OPDSLink(

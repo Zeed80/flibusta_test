@@ -17,7 +17,7 @@ class OPDS2Feed extends OPDSFeed {
     }
     
     public function setSubtitle($subtitle) {
-        $this->subtitle = $subtitle;
+        $this->subtitle = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($subtitle) : $subtitle;
         return $this;
     }
     
