@@ -44,25 +44,6 @@ init_paths() {
     fi
 }
 
-# Основная функция установки прав (можно вызывать из других скриптов)
-fix_permissions_internal() {
-    local quiet="${1:-false}"
-    
-    # Инициализация путей
-    init_paths
-    
-    if [ "$quiet" != "true" ]; then
-        echo -e "${GREEN}=== Исправление прав доступа для Flibusta ===${NC}"
-        echo ""
-        if [ "$IN_DOCKER" = "false" ]; then
-            echo -e "${YELLOW}Обнаружена среда хоста${NC}"
-            echo -e "${YELLOW}SQL_DIR: $SQL_DIR${NC}"
-            echo -e "${YELLOW}BOOKS_DIR: $BOOKS_DIR${NC}"
-        else
-            echo -e "${YELLOW}Обнаружена среда Docker контейнера${NC}"
-        fi
-    fi
-
 # Функция для установки прав
 set_permissions() {
     local path="$1"
@@ -90,6 +71,25 @@ set_permissions() {
         fi
     fi
 }
+
+# Основная функция установки прав (можно вызывать из других скриптов)
+fix_permissions_internal() {
+    local quiet="${1:-false}"
+    
+    # Инициализация путей
+    init_paths
+    
+    if [ "$quiet" != "true" ]; then
+        echo -e "${GREEN}=== Исправление прав доступа для Flibusta ===${NC}"
+        echo ""
+        if [ "$IN_DOCKER" = "false" ]; then
+            echo -e "${YELLOW}Обнаружена среда хоста${NC}"
+            echo -e "${YELLOW}SQL_DIR: $SQL_DIR${NC}"
+            echo -e "${YELLOW}BOOKS_DIR: $BOOKS_DIR${NC}"
+        else
+            echo -e "${YELLOW}Обнаружена среда Docker контейнера${NC}"
+        fi
+    fi
 
     # Создание необходимых директорий
     if [ "$quiet" != "true" ]; then
@@ -225,6 +225,12 @@ check_dir "$CACHE_DIR/tmp"
 check_dir "$SQL_DIR/psql"
 
     echo ""
+    
+    # Убеждаемся, что ERRORS - это число
+    if ! [[ "$ERRORS" =~ ^[0-9]+$ ]]; then
+        ERRORS=0
+    fi
+    
     if [ $ERRORS -eq 0 ]; then
         echo -e "${GREEN}=== Все права установлены успешно! ===${NC}"
         exit 0

@@ -1,7 +1,7 @@
 #!/bin/bash
 # validate_config.sh - Валидация конфигурации установки
 
-set -e
+# Не используем set -e, чтобы иметь контроль над обработкой ошибок
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -24,7 +24,7 @@ fi
 check_env_file() {
     if [ ! -f ".env" ]; then
         echo -e "${YELLOW}⚠ Файл .env не найден (будет создан из .env.example)${NC}"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
         return
     fi
     
@@ -34,7 +34,7 @@ check_env_file() {
     for var in "${required_vars[@]}"; do
         if ! grep -q "^${var}=" .env; then
             echo -e "${RED}✗ Отсутствует переменная $var в .env${NC}"
-            ((ERRORS++))
+            ERRORS=$((ERRORS + 1))
         fi
     done
     
@@ -51,24 +51,24 @@ check_env_file() {
                 echo -e "${GREEN}✓ $var установлена${NC}"
             else
                 echo -e "${YELLOW}⚠ $var пуста${NC}"
-                ((WARNINGS++))
+                WARNINGS=$((WARNINGS + 1))
             fi
         else
             echo -e "${YELLOW}⚠ $var не установлена (будет использовано значение по умолчанию)${NC}"
-            ((WARNINGS++))
+            WARNINGS=$((WARNINGS + 1))
         fi
     done
     
     # Проверка пароля
-    local password=$(grep "^FLIBUSTA_DBPASSWORD=" .env | cut -d'=' -f2-)
+    local password=$(grep "^FLIBUSTA_DBPASSWORD=" .env | cut -d'=' -f2- || echo "")
     if [ -z "$password" ] || [ "$password" = "your_secure_password_here" ] || [ "$password" = "flibusta" ]; then
         echo -e "${RED}✗ Пароль БД не настроен или использует небезопасное значение по умолчанию${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
     fi
     
-    if [ ${#password} -lt 8 ]; then
+    if [ -n "$password" ] && [ ${#password} -lt 8 ]; then
         echo -e "${YELLOW}⚠ Пароль БД слишком короткий (рекомендуется минимум 8 символов)${NC}"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
     fi
     
     # Проверка портов (должны быть числами)
@@ -78,17 +78,17 @@ check_env_file() {
     
     if ! [[ "$web_port" =~ ^[0-9]+$ ]]; then
         echo -e "${RED}✗ FLIBUSTA_PORT должен быть числом: $web_port${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
     fi
     
     if ! [[ "$db_port" =~ ^[0-9]+$ ]]; then
         echo -e "${RED}✗ FLIBUSTA_DB_PORT должен быть числом: $db_port${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
     fi
     
     if ! [[ "$prometheus_port" =~ ^[0-9]+$ ]]; then
         echo -e "${RED}✗ FLIBUSTA_PROMETHEUS_PORT должен быть числом: $prometheus_port${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
     fi
 }
 
@@ -106,30 +106,38 @@ check_sql_files() {
     
     if [ ! -d "$sql_dir" ]; then
         echo -e "${YELLOW}⚠ Директория SQL не найдена: $sql_dir (будет создана)${NC}"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
         return
     fi
     
     if [ ! -r "$sql_dir" ]; then
         echo -e "${RED}✗ Нет прав на чтение директории SQL: $sql_dir${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
         return
     fi
     
-    local sql_count=$(find "$sql_dir" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
+    local sql_count=$(find "$sql_dir" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l || echo "0")
     
-    if [ $sql_count -eq 0 ]; then
+    # Убеждаемся, что sql_count - это число
+    if ! [[ "$sql_count" =~ ^[0-9]+$ ]]; then
+        sql_count=0
+    fi
+    
+    if [ $sql_count -eq 0 ] 2>/dev/null; then
         echo -e "${YELLOW}⚠ SQL файлы не найдены в $sql_dir${NC}"
         echo -e "${YELLOW}  (не критично - можно будет скачать автоматически)${NC}"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
     else
         echo -e "${GREEN}✓ Найдено SQL файлов: $sql_count${NC}"
         
         # Проверка формата
-        local invalid_files=$(find "$sql_dir" -maxdepth 1 -type f ! \( -name "*.sql" -o -name "*.sql.gz" -o -name "*.zip" -o -name ".gitkeep" \) 2>/dev/null | wc -l)
-        if [ $invalid_files -gt 0 ]; then
+        local invalid_files=$(find "$sql_dir" -maxdepth 1 -type f ! \( -name "*.sql" -o -name "*.sql.gz" -o -name "*.zip" -o -name ".gitkeep" \) 2>/dev/null | wc -l || echo "0")
+        if ! [[ "$invalid_files" =~ ^[0-9]+$ ]]; then
+            invalid_files=0
+        fi
+        if [ $invalid_files -gt 0 ] 2>/dev/null; then
             echo -e "${YELLOW}⚠ Найдено файлов неверного формата в SQL директории: $invalid_files${NC}"
-            ((WARNINGS++))
+            WARNINGS=$((WARNINGS + 1))
         fi
     fi
 }
@@ -148,22 +156,27 @@ check_books_files() {
     
     if [ ! -d "$books_dir" ]; then
         echo -e "${YELLOW}⚠ Директория с книгами не найдена: $books_dir (будет создана)${NC}"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
         return
     fi
     
     if [ ! -r "$books_dir" ]; then
         echo -e "${RED}✗ Нет прав на чтение директории с книгами: $books_dir${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
         return
     fi
     
-    local books_count=$(find "$books_dir" -maxdepth 1 -type f -name "*.zip" 2>/dev/null | wc -l)
+    local books_count=$(find "$books_dir" -maxdepth 1 -type f -name "*.zip" 2>/dev/null | wc -l || echo "0")
     
-    if [ $books_count -eq 0 ]; then
+    # Убеждаемся, что books_count - это число
+    if ! [[ "$books_count" =~ ^[0-9]+$ ]]; then
+        books_count=0
+    fi
+    
+    if [ $books_count -eq 0 ] 2>/dev/null; then
         echo -e "${YELLOW}⚠ Архивы книг не найдены в $books_dir${NC}"
         echo -e "${YELLOW}  (не критично - можно будет скачать автоматически)${NC}"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
     else
         echo -e "${GREEN}✓ Найдено архивов книг: $books_count${NC}"
     fi
@@ -179,7 +192,7 @@ check_directories() {
         else
             if [ ! -w "$dir" ]; then
                 echo -e "${RED}✗ Нет прав на запись в директорию: $dir${NC}"
-                ((ERRORS++))
+                ERRORS=$((ERRORS + 1))
             else
                 echo -e "${GREEN}✓ Директория $dir доступна для записи${NC}"
             fi
@@ -193,14 +206,14 @@ check_ports() {
     local db_port="${FLIBUSTA_DB_PORT:-27101}"
     
     if command -v ss &> /dev/null; then
-        if ss -tuln | grep -q ":$web_port "; then
+        if ss -tuln 2>/dev/null | grep -q ":$web_port "; then
             echo -e "${RED}✗ Порт веб-сервера $web_port занят${NC}"
-            ((ERRORS++))
+            ERRORS=$((ERRORS + 1))
         fi
         
-        if ss -tuln | grep -q ":$db_port "; then
+        if ss -tuln 2>/dev/null | grep -q ":$db_port "; then
             echo -e "${RED}✗ Порт базы данных $db_port занят${NC}"
-            ((ERRORS++))
+            ERRORS=$((ERRORS + 1))
         fi
     fi
 }
@@ -217,6 +230,15 @@ check_ports
 
 echo ""
 echo -e "${BLUE}=== Итоги валидации ===${NC}"
+
+# Убеждаемся, что ERRORS и WARNINGS - это числа
+if ! [[ "$ERRORS" =~ ^[0-9]+$ ]]; then
+    ERRORS=0
+fi
+if ! [[ "$WARNINGS" =~ ^[0-9]+$ ]]; then
+    WARNINGS=0
+fi
+
 echo -e "Ошибки: $ERRORS"
 echo -e "Предупреждения: $WARNINGS"
 echo ""

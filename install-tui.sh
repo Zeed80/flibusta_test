@@ -1,7 +1,7 @@
 #!/bin/bash
 # install-tui.sh - TUI установщик Flibusta Local Mirror
 
-set -e
+# Не используем set -e, чтобы иметь контроль над обработкой ошибок
 
 # Определение доступного TUI инструмента
 detect_tui_tool() {

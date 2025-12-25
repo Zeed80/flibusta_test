@@ -1,7 +1,7 @@
 #!/bin/sh
 # init_database.sh - Автоматическая инициализация базы данных
 
-set -e
+# Не используем set -e, чтобы иметь контроль над обработкой ошибок
 
 # Цвета для вывода
 GREEN='\033[0;32m'
@@ -187,8 +187,13 @@ fi
 echo ""
 echo -e "${GREEN}✓ Инициализация базы данных завершена${NC}"
 
+# Убеждаемся, что ERRORS_COUNT - это число
+if ! echo "$ERRORS_COUNT" | grep -qE '^[0-9]+$'; then
+    ERRORS_COUNT=0
+fi
+
 # Выход с кодом ошибки, если были проблемы
-if [ $ERRORS_COUNT -gt 0 ]; then
+if [ $ERRORS_COUNT -gt 0 ] 2>/dev/null; then
     echo -e "${YELLOW}⚠ ВНИМАНИЕ: Обнаружены ошибки при импорте. Проверьте логи.${NC}"
     exit 1
 fi

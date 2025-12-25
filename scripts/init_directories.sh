@@ -1,12 +1,16 @@
 #!/bin/bash
 # init_directories.sh - Создание необходимых директорий для Flibusta
 
-set -e
+# Не используем set -e, чтобы иметь контроль над обработкой ошибок
 
 # Цвета для вывода
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Инициализация счетчика ошибок
+ERRORS=0
 
 # Загрузка переменных из .env если файл существует
 if [ -f ".env" ]; then
@@ -63,6 +67,11 @@ fi
 [ -d "cache/covers" ] && touch cache/covers/.gitkeep 2>/dev/null || true
 [ -d "cache/tmp" ] && touch cache/tmp/.gitkeep 2>/dev/null || true
 [ -d "cache/opds" ] && touch cache/opds/.gitkeep 2>/dev/null || true
+
+# Убеждаемся, что ERRORS - это число
+if ! [[ "$ERRORS" =~ ^[0-9]+$ ]]; then
+    ERRORS=0
+fi
 
 if [ $ERRORS -eq 0 ]; then
     echo -e "${GREEN}✓ Директории созданы${NC}"

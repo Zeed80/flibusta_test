@@ -1,7 +1,7 @@
 #!/bin/bash
 # quick_start.sh - Быстрая установка Flibusta для опытных пользователей
 
-set -e
+# Не используем set -e, чтобы иметь контроль над обработкой ошибок
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -90,20 +90,25 @@ check_required() {
     
     if [ -z "$SQL_DIR" ]; then
         echo -e "${RED}Ошибка: --sql-dir обязателен${NC}"
-        ((errors++))
+        errors=$((errors + 1))
     fi
     
     if [ -z "$BOOKS_DIR" ]; then
         echo -e "${RED}Ошибка: --books-dir обязателен${NC}"
-        ((errors++))
+        errors=$((errors + 1))
     fi
     
     if [ -z "$DB_PASSWORD" ]; then
         echo -e "${RED}Ошибка: --db-password обязателен${NC}"
-        ((errors++))
+        errors=$((errors + 1))
     fi
     
-    if [ $errors -gt 0 ]; then
+    # Убеждаемся, что errors - это число
+    if ! [[ "$errors" =~ ^[0-9]+$ ]]; then
+        errors=0
+    fi
+    
+    if [ $errors -gt 0 ] 2>/dev/null; then
         echo ""
         usage
     fi

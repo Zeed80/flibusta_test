@@ -1,7 +1,7 @@
 #!/bin/bash
 # verify_installation.sh - Проверка установки Flibusta
 
-set -e
+# Не используем set -e, чтобы иметь контроль над обработкой ошибок
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -28,7 +28,7 @@ check_containers() {
     
     if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
         echo -e "${RED}✗ Docker Compose не найден${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
         return
     fi
     
@@ -37,13 +37,18 @@ check_containers() {
         compose_cmd="docker compose"
     fi
     
-    local containers=$($compose_cmd ps --services --filter "status=running" 2>/dev/null | wc -l)
+    local containers=$($compose_cmd ps --services --filter "status=running" 2>/dev/null | wc -l || echo "0")
     
-    if [ $containers -ge 3 ]; then
+    # Убеждаемся, что containers - это число
+    if ! [[ "$containers" =~ ^[0-9]+$ ]]; then
+        containers=0
+    fi
+    
+    if [ $containers -ge 3 ] 2>/dev/null; then
         echo -e "${GREEN}✓ Все контейнеры работают ($containers)${NC}"
     else
         echo -e "${RED}✗ Не все контейнеры работают ($containers/3)${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
     fi
 }
 
@@ -58,7 +63,7 @@ check_web_interface() {
             echo -e "${GREEN}✓ Веб-интерфейс доступен: $WEB_URL${NC}"
         else
             echo -e "${RED}✗ Веб-интерфейс недоступен (HTTP $status)${NC}"
-            ((ERRORS++))
+            ERRORS=$((ERRORS + 1))
         fi
     else
         echo -e "${YELLOW}⚠ curl не найден, пропуск проверки${NC}"
@@ -76,7 +81,7 @@ check_opds() {
             echo -e "${GREEN}✓ OPDS каталог доступен: $WEB_URL/opds/${NC}"
         else
             echo -e "${RED}✗ OPDS каталог недоступен (HTTP $status)${NC}"
-            ((ERRORS++))
+            ERRORS=$((ERRORS + 1))
         fi
     else
         echo -e "${YELLOW}⚠ curl не найден, пропуск проверки${NC}"
@@ -96,16 +101,21 @@ check_database() {
         echo -e "${GREEN}✓ База данных подключена${NC}"
         
         # Проверка наличия данных
-        local book_count=$($compose_cmd exec -T postgres psql -U flibusta -d flibusta -t -c "SELECT COUNT(*) FROM libbook WHERE deleted='0';" 2>/dev/null | tr -d ' ')
+        local book_count=$($compose_cmd exec -T postgres psql -U flibusta -d flibusta -t -c "SELECT COUNT(*) FROM libbook WHERE deleted='0';" 2>/dev/null | tr -d ' ' || echo "0")
         
-        if [ -n "$book_count" ] && [ "$book_count" -gt 0 ]; then
+        # Убеждаемся, что book_count - это число
+        if ! [[ "$book_count" =~ ^[0-9]+$ ]]; then
+            book_count=0
+        fi
+        
+        if [ -n "$book_count" ] && [ "$book_count" -gt 0 ] 2>/dev/null; then
             echo -e "${GREEN}✓ Найдено книг в БД: $book_count${NC}"
         else
             echo -e "${YELLOW}⚠ Книги в БД не найдены (возможно, БД еще не инициализирована)${NC}"
         fi
     else
         echo -e "${RED}✗ Не удалось подключиться к базе данных${NC}"
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
     fi
 }
 
@@ -134,6 +144,12 @@ check_database
 check_search
 
 echo ""
+
+# Убеждаемся, что ERRORS - это число
+if ! [[ "$ERRORS" =~ ^[0-9]+$ ]]; then
+    ERRORS=0
+fi
+
 if [ $ERRORS -eq 0 ]; then
     echo -e "${GREEN}Установка завершена успешно!${NC}"
     echo ""
