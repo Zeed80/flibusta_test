@@ -112,17 +112,27 @@ fi
 log_warning "Подключение с новым паролем не удалось, пробуем обновить пароль..."
 
 # Пробуем подключиться с разными паролями
-PASSWORDS_TO_TRY=("flibusta" "${FLIBUSTA_DBPASSWORD:-flibusta}")
+# В docker-compose.yml POSTGRES_USER=flibusta, поэтому flibusta - суперпользователь
+# Пробуем разные варианты паролей
+PASSWORDS_TO_TRY=("flibusta" "${FLIBUSTA_DBPASSWORD:-flibusta}" "${POSTGRES_PASSWORD:-flibusta}")
 
 working_password=""
-for test_password in "${PASSWORDS_TO_TRY[@]}"; do
-    export PGPASSWORD="$test_password"
-    if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" >/dev/null 2>&1; then
-        working_password="$test_password"
-        log_success "Найден рабочий пароль для подключения"
-        break
-    fi
-done
+# Сначала пробуем локальное подключение без пароля (trust authentication для local connections)
+if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -h localhost -c "SELECT 1;" >/dev/null 2>&1; then
+    # Локальное подключение работает, используем пустой пароль для обновления
+    working_password=""
+    log_success "Найдено локальное подключение (trust authentication)"
+else
+    # Пробуем подключиться с паролями
+    for test_password in "${PASSWORDS_TO_TRY[@]}"; do
+        export PGPASSWORD="$test_password"
+        if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" >/dev/null 2>&1; then
+            working_password="$test_password"
+            log_success "Найден рабочий пароль для подключения"
+            break
+        fi
+    done
+fi
 
 if [ -z "$working_password" ]; then
     log_error "Не удалось подключиться к БД ни с одним из известных паролей"
@@ -134,16 +144,33 @@ fi
 
 # Обновление пароля
 log_info "Обновление пароля пользователя $DB_USER..."
-export PGPASSWORD="$working_password"
+if [ -n "$working_password" ]; then
+    export PGPASSWORD="$working_password"
+else
+    # Используем локальное подключение без пароля
+    unset PGPASSWORD
+fi
 
 # Экранируем специальные символы в пароле для SQL
 escaped_password=$(echo "$DB_PASSWORD" | sed "s/'/''/g")
 
-if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "postgres" -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
-    log_success "Пароль обновлен в базе данных"
+# Пробуем обновить пароль через локальное подключение или с рабочим паролем
+if [ -z "$working_password" ]; then
+    # Локальное подключение через localhost
+    if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "postgres" -h localhost -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
+        log_success "Пароль обновлен в базе данных (через локальное подключение)"
+    else
+        log_error "Не удалось обновить пароль через локальное подключение"
+        exit 1
+    fi
 else
-    log_error "Не удалось обновить пароль"
-    exit 1
+    # Подключение с паролем
+    if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "postgres" -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
+        log_success "Пароль обновлен в базе данных"
+    else
+        log_error "Не удалось обновить пароль"
+        exit 1
+    fi
 fi
 
 # Проверка нового пароля
