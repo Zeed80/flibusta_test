@@ -117,11 +117,14 @@ MAIN_PASSWORD="$PGPASSWORD"
 # Подготовка списка паролей для попыток подключения
 # При первом запуске postgres может быть создан с паролем из POSTGRES_PASSWORD
 # который берется из FLIBUSTA_DBPASSWORD или дефолтного 'flibusta'
-PASSWORDS_TO_TRY=("$PGPASSWORD" "${FLIBUSTA_DBPASSWORD:-flibusta}" "flibusta")
+# Используем строку вместо массива для совместимости с sh
+PASSWORD_1="$PGPASSWORD"
+PASSWORD_2="${FLIBUSTA_DBPASSWORD:-flibusta}"
+PASSWORD_3="flibusta"
 
-# Убираем дубликаты
+# Формируем список уникальных паролей
 UNIQUE_PASSWORDS=""
-for pwd in "${PASSWORDS_TO_TRY[@]}"; do
+for pwd in "$PASSWORD_1" "$PASSWORD_2" "$PASSWORD_3"; do
     if [ -n "$pwd" ]; then
         found=0
         for existing in $UNIQUE_PASSWORDS; do
