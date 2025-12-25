@@ -11,7 +11,11 @@ if (getenv('FLIBUSTA_DBPASSWORD_FILE')) {
 		$dbpasswd = file_get_contents($passwordFile);
 		if ($dbpasswd !== false) {
 			$dbpasswd = trim($dbpasswd);
+		} else {
+			error_log("Не удалось прочитать пароль из файла секрета: $passwordFile");
 		}
+	} else {
+		error_log("Файл секрета не найден или недоступен: $passwordFile (существует: " . (file_exists($passwordFile) ? 'да' : 'нет') . ", читаемый: " . (is_readable($passwordFile) ? 'да' : 'нет') . ")");
 	}
 }
 
