@@ -589,7 +589,7 @@ update_db_password() {
     # Ожидание готовности PostgreSQL
     local postgres_ready=0
     for i in {1..30}; do
-        if $compose_cmd exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+        if $compose_cmd exec -T postgres pg_isready -U "$db_user" >/dev/null 2>&1; then
             postgres_ready=1
             break
         fi
@@ -608,54 +608,84 @@ update_db_password() {
         return 0
     fi
     
-    # Если не получилось, пробуем подключиться как postgres (суперпользователь)
-    # В PostgreSQL контейнере пароль postgres обычно совпадает с POSTGRES_PASSWORD
-    # который при первой установке равен FLIBUSTA_DBPASSWORD
-    local postgres_password="${FLIBUSTA_DBPASSWORD:-flibusta}"
-    
-    # Пробуем несколько вариантов пароля для postgres:
+    # В этом контейнере POSTGRES_USER=flibusta, значит flibusta - это суперпользователь
+    # Пробуем подключиться как flibusta с разными паролями для обновления пароля
+    # Пробуем несколько вариантов пароля:
     # 1. Текущий пароль из .env (если volume новый)
-    # 2. Старый пароль из secrets (если volume старый и пароль postgres совпадал с flibusta)
+    # 2. Старый пароль из secrets (если volume старый)
     # 3. Стандартные значения
     local old_secret_password=""
     if [ -f "secrets/flibusta_pwd.txt" ]; then
         old_secret_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
     fi
     
-    local admin_passwords=("$postgres_password" "$old_secret_password" "flibusta" "$new_password")
+    local admin_passwords=("$new_password" "$old_secret_password" "${FLIBUSTA_DBPASSWORD:-flibusta}" "flibusta")
     
-    # Убираем пустые значения
+    # Убираем пустые значения и дубликаты
     local filtered_passwords=()
     for pwd in "${admin_passwords[@]}"; do
         if [ -n "$pwd" ]; then
-            filtered_passwords+=("$pwd")
+            # Проверяем, нет ли уже такого пароля в массиве
+            local found=0
+            for existing in "${filtered_passwords[@]}"; do
+                if [ "$existing" = "$pwd" ]; then
+                    found=1
+                    break
+                fi
+            done
+            if [ $found -eq 0 ]; then
+                filtered_passwords+=("$pwd")
+            fi
         fi
     done
     admin_passwords=("${filtered_passwords[@]}")
     
     local connected=0
+    local working_password=""
     for admin_pass in "${admin_passwords[@]}"; do
         export PGPASSWORD="$admin_pass"
-        if $compose_cmd exec -T postgres psql -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+        # Пробуем подключиться как flibusta (который является суперпользователем)
+        if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
             connected=1
+            working_password="$admin_pass"
             break
         fi
     done
     
     if [ $connected -eq 0 ]; then
-        log "${YELLOW}⚠ Не удалось подключиться к PostgreSQL как postgres для обновления пароля${NC}"
-        log "${YELLOW}Пароль может быть не обновлен. Если возникают проблемы, удалите volume:${NC}"
+        log "${YELLOW}⚠ Не удалось подключиться к PostgreSQL для обновления пароля${NC}"
+        log "${YELLOW}Возможно, volume БД существует со старым паролем. Удалите volume:${NC}"
         log "${YELLOW}  $compose_cmd down -v${NC}"
+        log "${YELLOW}  (ВНИМАНИЕ: это удалит все данные базы!)${NC}"
+        return 0
+    fi
+    
+    # Если текущий пароль уже правильный, не нужно обновлять
+    if [ "$working_password" = "$new_password" ]; then
+        log "${GREEN}✓ Пароль БД уже правильный${NC}"
         return 0
     fi
     
     # Обновляем пароль пользователя flibusta
+    # В этом контейнере flibusta является суперпользователем (POSTGRES_USER=flibusta)
     log "${BLUE}Обновление пароля пользователя $db_user...${NC}"
     
     # Экранируем специальные символы в пароле для SQL
     local escaped_password=$(echo "$new_password" | sed "s/'/''/g")
     
-    if $compose_cmd exec -T postgres psql -U postgres -d postgres -c "ALTER USER $db_user WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
+    # Используем рабочий пароль для подключения и обновляем на новый
+    # Подключаемся к системной базе postgres для выполнения ALTER USER
+    # В этом контейнере flibusta является суперпользователем (POSTGRES_USER=flibusta)
+    export PGPASSWORD="$working_password"
+    # Пробуем подключиться к базе postgres или flibusta
+    local alter_result=0
+    if $compose_cmd exec -T postgres psql -U "$db_user" -d "postgres" -c "ALTER USER $db_user WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
+        alter_result=1
+    elif $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "ALTER USER $db_user WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
+        alter_result=1
+    fi
+    
+    if [ $alter_result -eq 1 ]; then
         log "${GREEN}✓ Пароль пользователя $db_user обновлен${NC}"
         
         # Проверяем, что новый пароль работает
