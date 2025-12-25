@@ -567,12 +567,6 @@ build_containers() {
 
 # Обновление пароля в существующей БД
 update_db_password() {
-    if [ -z "$DB_PASSWORD" ]; then
-        return 0
-    fi
-    
-    log "${BLUE}Проверка и обновление пароля БД...${NC}"
-    
     local compose_cmd=$(get_compose_cmd)
     
     # Загрузка .env
@@ -582,44 +576,53 @@ update_db_password() {
         set +a
     fi
     
+    # Получаем пароль из разных источников
+    local new_password=""
+    if [ -n "$DB_PASSWORD" ]; then
+        new_password="$DB_PASSWORD"
+    elif [ -f "secrets/flibusta_pwd.txt" ]; then
+        new_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
+    elif [ -n "${FLIBUSTA_DBPASSWORD:-}" ]; then
+        new_password="${FLIBUSTA_DBPASSWORD}"
+    fi
+    
+    if [ -z "$new_password" ]; then
+        log "${YELLOW}⚠ Пароль БД не указан, пропуск обновления${NC}"
+        return 0
+    fi
+    
+    log "${BLUE}Проверка и обновление пароля БД...${NC}"
+    
     local db_user="${FLIBUSTA_DBUSER:-flibusta}"
     local db_name="${FLIBUSTA_DBNAME:-flibusta}"
-    local new_password="$DB_PASSWORD"
     
-    # Ожидание готовности PostgreSQL
+    # Ожидание готовности PostgreSQL с проверкой подключения
     local postgres_ready=0
-    for i in {1..30}; do
+    for i in {1..60}; do
         if $compose_cmd exec -T postgres pg_isready -U "$db_user" >/dev/null 2>&1; then
-            postgres_ready=1
+            # Проверяем реальное подключение с новым паролем
+            export PGPASSWORD="$new_password"
+            if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
+                postgres_ready=1
+                log "${GREEN}✓ PostgreSQL готов и пароль правильный${NC}"
+                return 0
+            fi
+            # Если подключение не удалось, продолжаем попытки
+        fi
+        if [ $i -eq 60 ]; then
+            log "${YELLOW}⚠ PostgreSQL не готов после 60 попыток, продолжаем попытки обновления пароля${NC}"
             break
         fi
         sleep 2
     done
     
-    if [ $postgres_ready -eq 0 ]; then
-        log "${YELLOW}⚠ PostgreSQL не готов, пропуск обновления пароля${NC}"
-        return 0
-    fi
-    
-    # Пробуем подключиться с новым паролем
-    export PGPASSWORD="$new_password"
-    if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
-        log "${GREEN}✓ Пароль БД уже правильный${NC}"
-        return 0
-    fi
-    
     # В этом контейнере POSTGRES_USER=flibusta, значит flibusta - это суперпользователь
     # Пробуем подключиться как flibusta с разными паролями для обновления пароля
     # Пробуем несколько вариантов пароля:
-    # 1. Текущий пароль из .env (если volume новый)
-    # 2. Старый пароль из secrets (если volume старый)
-    # 3. Стандартные значения
-    local old_secret_password=""
-    if [ -f "secrets/flibusta_pwd.txt" ]; then
-        old_secret_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
-    fi
-    
-    local admin_passwords=("$new_password" "$old_secret_password" "${FLIBUSTA_DBPASSWORD:-flibusta}" "flibusta")
+    # 1. Новый пароль (из secrets или .env)
+    # 2. Пароль из .env (если отличается)
+    # 3. Дефолтный пароль 'flibusta' (если volume был создан с дефолтным паролем)
+    local admin_passwords=("$new_password" "${FLIBUSTA_DBPASSWORD:-flibusta}" "flibusta")
     
     # Убираем пустые значения и дубликаты
     local filtered_passwords=()
@@ -688,20 +691,36 @@ update_db_password() {
     if [ $alter_result -eq 1 ]; then
         log "${GREEN}✓ Пароль пользователя $db_user обновлен${NC}"
         
+        # Небольшая задержка для применения изменений
+        sleep 1
+        
         # Проверяем, что новый пароль работает
         export PGPASSWORD="$new_password"
-        if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
+        local verify_attempts=0
+        local verify_success=0
+        while [ $verify_attempts -lt 5 ]; do
+            if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
+                verify_success=1
+                break
+            fi
+            verify_attempts=$((verify_attempts + 1))
+            sleep 1
+        done
+        
+        if [ $verify_success -eq 1 ]; then
             log "${GREEN}✓ Подключение с новым паролем успешно${NC}"
+            log "${GREEN}✓ Пароль БД синхронизирован${NC}"
             return 0
         else
             log "${YELLOW}⚠ Пароль обновлен, но подключение с новым паролем не работает${NC}"
-            log "${YELLOW}Возможно, требуется перезапуск контейнеров${NC}"
-            return 0
+            log "${YELLOW}Попробуйте перезапустить контейнеры: $compose_cmd restart${NC}"
+            return 1
         fi
     else
         log "${YELLOW}⚠ Не удалось обновить пароль пользователя $db_user${NC}"
         log "${YELLOW}Возможно, пользователь не существует или нет прав${NC}"
-        return 0
+        log "${YELLOW}Попробуйте пересоздать volume БД: $compose_cmd down -v && $compose_cmd up -d${NC}"
+        return 1
     fi
 }
 
@@ -1420,7 +1439,40 @@ main() {
     fi
     
     # Обновление пароля в существующей БД (если volume уже существует)
-    update_db_password
+    # Важно: это должно быть выполнено после запуска контейнеров, но перед инициализацией БД
+    log "${BLUE}Синхронизация пароля БД...${NC}"
+    
+    # Проверка синхронизации паролей перед обновлением
+    local env_password=""
+    local secret_password=""
+    
+    if [ -f ".env" ]; then
+        env_password=$(grep "^FLIBUSTA_DBPASSWORD=" .env | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+    fi
+    
+    if [ -f "secrets/flibusta_pwd.txt" ]; then
+        secret_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
+    fi
+    
+    if [ -n "$env_password" ] && [ -n "$secret_password" ] && [ "$env_password" != "$secret_password" ]; then
+        log "${YELLOW}⚠ Пароли в .env и secrets/flibusta_pwd.txt не совпадают${NC}"
+        log "${BLUE}Обновление пароля в secrets/flibusta_pwd.txt...${NC}"
+        if echo -n "$env_password" > secrets/flibusta_pwd.txt && chmod 600 secrets/flibusta_pwd.txt; then
+            log "${GREEN}✓ Пароль в secrets/flibusta_pwd.txt обновлен${NC}"
+            secret_password="$env_password"
+        else
+            log "${RED}✗ Не удалось обновить пароль в secrets/flibusta_pwd.txt${NC}"
+        fi
+    fi
+    
+    if ! update_db_password; then
+        log "${YELLOW}⚠ Не удалось синхронизировать пароль БД${NC}"
+        log "${YELLOW}Попробуйте выполнить скрипт исправления вручную:${NC}"
+        log "${YELLOW}  bash scripts/fix_db_password.sh${NC}"
+        log "${YELLOW}Или пересоздайте volume БД:${NC}"
+        log "${YELLOW}  $compose_cmd down -v${NC}"
+        log "${YELLOW}  (ВНИМАНИЕ: это удалит все данные базы!)${NC}"
+    fi
     
     # Предварительные проверки перед инициализацией БД
     if [ $AUTO_INIT -eq 1 ]; then
