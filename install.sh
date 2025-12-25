@@ -565,6 +565,116 @@ build_containers() {
     fi
 }
 
+# Обновление пароля в существующей БД
+update_db_password() {
+    if [ -z "$DB_PASSWORD" ]; then
+        return 0
+    fi
+    
+    log "${BLUE}Проверка и обновление пароля БД...${NC}"
+    
+    local compose_cmd=$(get_compose_cmd)
+    
+    # Загрузка .env
+    if [ -f ".env" ]; then
+        set -a
+        source .env 2>/dev/null || true
+        set +a
+    fi
+    
+    local db_user="${FLIBUSTA_DBUSER:-flibusta}"
+    local db_name="${FLIBUSTA_DBNAME:-flibusta}"
+    local new_password="$DB_PASSWORD"
+    
+    # Ожидание готовности PostgreSQL
+    local postgres_ready=0
+    for i in {1..30}; do
+        if $compose_cmd exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+            postgres_ready=1
+            break
+        fi
+        sleep 2
+    done
+    
+    if [ $postgres_ready -eq 0 ]; then
+        log "${YELLOW}⚠ PostgreSQL не готов, пропуск обновления пароля${NC}"
+        return 0
+    fi
+    
+    # Пробуем подключиться с новым паролем
+    export PGPASSWORD="$new_password"
+    if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
+        log "${GREEN}✓ Пароль БД уже правильный${NC}"
+        return 0
+    fi
+    
+    # Если не получилось, пробуем подключиться как postgres (суперпользователь)
+    # В PostgreSQL контейнере пароль postgres обычно совпадает с POSTGRES_PASSWORD
+    # который при первой установке равен FLIBUSTA_DBPASSWORD
+    local postgres_password="${FLIBUSTA_DBPASSWORD:-flibusta}"
+    
+    # Пробуем несколько вариантов пароля для postgres:
+    # 1. Текущий пароль из .env (если volume новый)
+    # 2. Старый пароль из secrets (если volume старый и пароль postgres совпадал с flibusta)
+    # 3. Стандартные значения
+    local old_secret_password=""
+    if [ -f "secrets/flibusta_pwd.txt" ]; then
+        old_secret_password=$(cat secrets/flibusta_pwd.txt | tr -d '\n\r' 2>/dev/null || echo "")
+    fi
+    
+    local admin_passwords=("$postgres_password" "$old_secret_password" "flibusta" "$new_password")
+    
+    # Убираем пустые значения
+    local filtered_passwords=()
+    for pwd in "${admin_passwords[@]}"; do
+        if [ -n "$pwd" ]; then
+            filtered_passwords+=("$pwd")
+        fi
+    done
+    admin_passwords=("${filtered_passwords[@]}")
+    
+    local connected=0
+    for admin_pass in "${admin_passwords[@]}"; do
+        export PGPASSWORD="$admin_pass"
+        if $compose_cmd exec -T postgres psql -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+            connected=1
+            break
+        fi
+    done
+    
+    if [ $connected -eq 0 ]; then
+        log "${YELLOW}⚠ Не удалось подключиться к PostgreSQL как postgres для обновления пароля${NC}"
+        log "${YELLOW}Пароль может быть не обновлен. Если возникают проблемы, удалите volume:${NC}"
+        log "${YELLOW}  $compose_cmd down -v${NC}"
+        return 0
+    fi
+    
+    # Обновляем пароль пользователя flibusta
+    log "${BLUE}Обновление пароля пользователя $db_user...${NC}"
+    
+    # Экранируем специальные символы в пароле для SQL
+    local escaped_password=$(echo "$new_password" | sed "s/'/''/g")
+    
+    if $compose_cmd exec -T postgres psql -U postgres -d postgres -c "ALTER USER $db_user WITH PASSWORD '$escaped_password';" >/dev/null 2>&1; then
+        log "${GREEN}✓ Пароль пользователя $db_user обновлен${NC}"
+        
+        # Проверяем, что новый пароль работает
+        export PGPASSWORD="$new_password"
+        if $compose_cmd exec -T postgres psql -U "$db_user" -d "$db_name" -c "SELECT 1;" >/dev/null 2>&1; then
+            log "${GREEN}✓ Подключение с новым паролем успешно${NC}"
+            return 0
+        else
+            log "${YELLOW}⚠ Пароль обновлен, но подключение с новым паролем не работает${NC}"
+            log "${YELLOW}Возможно, требуется перезапуск контейнеров${NC}"
+            return 0
+        fi
+    else
+        log "${YELLOW}⚠ Не удалось обновить пароль пользователя $db_user${NC}"
+        log "${YELLOW}Возможно, пользователь не существует или нет прав${NC}"
+        return 0
+    fi
+}
+
 # Запуск контейнеров
 start_containers() {
     log "${BLUE}Запуск контейнеров...${NC}"
@@ -1143,6 +1253,9 @@ main() {
         log "${RED}Ошибка при запуске контейнеров. Установка остановлена.${NC}"
         exit 1
     fi
+    
+    # Обновление пароля в существующей БД (если volume уже существует)
+    update_db_password
     
     # Инициализация БД
     # Не критично, продолжаем даже при ошибке
