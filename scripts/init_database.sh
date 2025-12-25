@@ -136,45 +136,56 @@ while [ $i -le $max_attempts ]; do
                 if [ "$PGPASSWORD" != "flibusta" ]; then
                     export PGPASSWORD="flibusta"
                     if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
-                    log_warning "Подключение с дефолтным паролем успешно, обновляем пароль в БД..."
-                    # Получаем правильный пароль
-                    correct_password=""
-                    if [ -f "/run/secrets/FLIBUSTA_PWD" ]; then
-                        correct_password=$(cat /run/secrets/FLIBUSTA_PWD 2>/dev/null | tr -d '\n\r' || echo "")
-                    fi
-                    if [ -z "$correct_password" ] && [ -n "${FLIBUSTA_DBPASSWORD:-}" ]; then
-                        correct_password="${FLIBUSTA_DBPASSWORD}"
-                    fi
-                    if [ -n "$correct_password" ] && [ "$correct_password" != "flibusta" ]; then
-                        # Обновляем пароль на правильный
-                        escaped_password=$(echo "$correct_password" | sed "s/'/''/g" 2>/dev/null || echo "$correct_password")
-                        if psql -h "$DB_HOST" -U "$DB_USER" -d "postgres" -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" > /dev/null 2>&1; then
-                            log_success "Пароль в БД обновлен"
-                            export PGPASSWORD="$correct_password"
-                            sleep 1
-                            if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
-                                postgres_ready=1
-                                log_success "Подключение с обновленным паролем успешно"
-                                break
+                        log_warning "Подключение с дефолтным паролем успешно, обновляем пароль в БД..."
+                        # Получаем правильный пароль
+                        correct_password=""
+                        if [ -f "/run/secrets/FLIBUSTA_PWD" ]; then
+                            correct_password=$(cat /run/secrets/FLIBUSTA_PWD 2>/dev/null | tr -d '\n\r' || echo "")
+                        fi
+                        if [ -z "$correct_password" ] && [ -n "${FLIBUSTA_DBPASSWORD:-}" ]; then
+                            correct_password="${FLIBUSTA_DBPASSWORD}"
+                        fi
+                        if [ -n "$correct_password" ] && [ "$correct_password" != "flibusta" ]; then
+                            # Обновляем пароль на правильный
+                            escaped_password=$(echo "$correct_password" | sed "s/'/''/g" 2>/dev/null || echo "$correct_password")
+                            if psql -h "$DB_HOST" -U "$DB_USER" -d "postgres" -c "ALTER USER $DB_USER WITH PASSWORD '$escaped_password';" > /dev/null 2>&1; then
+                                log_success "Пароль в БД обновлен"
+                                export PGPASSWORD="$correct_password"
+                                sleep 1
+                                if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                                    postgres_ready=1
+                                    log_success "Подключение с обновленным паролем успешно"
+                                    break
+                                else
+                                    log_warning "Пароль обновлен, но подключение не работает, используем дефолтный"
+                                    export PGPASSWORD="flibusta"
+                                    postgres_ready=1
+                                    break
+                                fi
                             else
-                                log_warning "Пароль обновлен, но подключение не работает, используем дефолтный"
+                                log_warning "Не удалось обновить пароль, используем дефолтный"
                                 export PGPASSWORD="flibusta"
                                 postgres_ready=1
                                 break
                             fi
                         else
-                            log_warning "Не удалось обновить пароль, используем дефолтный"
+                            log_warning "Правильный пароль не найден, используем дефолтный"
                             export PGPASSWORD="flibusta"
                             postgres_ready=1
                             break
                         fi
-                    else
-                        log_warning "Правильный пароль не найден, используем дефолтный"
-                        export PGPASSWORD="flibusta"
-                        postgres_ready=1
-                        break
                     fi
                 fi
+            fi
+        fi
+    else
+        # Если мы на хосте, используем docker-compose exec
+        if $COMPOSE_CMD exec -T postgres pg_isready -U "$DB_USER" -d "$DB_NAME" > /dev/null 2>&1; then
+            export PGPASSWORD="$PGPASSWORD"
+            if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                postgres_ready=1
+                log_success "PostgreSQL готов и доступен"
+                break
             fi
         fi
     fi
