@@ -14,6 +14,13 @@ NC='\033[0m' # No Color
 ERRORS=0
 WARNINGS=0
 
+# Загрузка переменных из .env если файл существует (только на хосте)
+if [ ! -d "/application" ] && [ -f ".env" ]; then
+    set -a
+    source .env 2>/dev/null || true
+    set +a
+fi
+
 # Определяем, запущен ли скрипт внутри Docker контейнера или на хосте
 if [ -d "/application" ]; then
     # Внутри Docker контейнера
@@ -27,8 +34,9 @@ else
     # На хосте
     APPLICATION_DIR="$(cd "$(dirname "$0")/.." && pwd)"
     CACHE_DIR="$APPLICATION_DIR/cache"
-    SQL_DIR="$APPLICATION_DIR/FlibustaSQL"
-    BOOKS_DIR="$APPLICATION_DIR/Flibusta.Net"
+    # Используем переменные окружения или значения по умолчанию
+    SQL_DIR="${FLIBUSTA_SQL_PATH:-$APPLICATION_DIR/FlibustaSQL}"
+    BOOKS_DIR="${FLIBUSTA_BOOKS_PATH:-$APPLICATION_DIR/Flibusta.Net}"
     TOOLS_DIR="$APPLICATION_DIR/application/tools"
     IN_DOCKER=false
 fi

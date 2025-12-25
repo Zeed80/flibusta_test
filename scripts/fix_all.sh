@@ -85,18 +85,15 @@ if command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/nul
         
         # Исправление прав внутри контейнера
         echo "Исправление прав внутри контейнера php-fpm..."
-        if $COMPOSE_CMD exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null || true" 2>/dev/null; then
-            echo -e "${GREEN}✓ Права на скрипты установлены в контейнере${NC}"
+        if $COMPOSE_CMD exec -T php-fpm sh -c "sh /application/scripts/fix_permissions.sh >/dev/null 2>&1" 2>/dev/null; then
+            echo -e "${GREEN}✓ Права установлены в контейнере${NC}"
         else
-            echo -e "${YELLOW}⚠ Не удалось установить права в контейнере (возможно, контейнер не запущен)${NC}"
-        fi
-        
-        # Установка прав на директории внутри контейнера
-        echo "Установка прав на директории в контейнере..."
-        if $COMPOSE_CMD exec -T php-fpm sh -c "chmod -R 777 /application/cache /application/sql/psql 2>/dev/null || true" 2>/dev/null; then
-            echo -e "${GREEN}✓ Права на директории установлены в контейнере${NC}"
-        else
-            echo -e "${YELLOW}⚠ Не удалось установить права на директории в контейнере${NC}"
+            # Fallback на старый метод
+            if $COMPOSE_CMD exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null && chmod -R 777 /application/cache /application/sql/psql 2>/dev/null || true" 2>/dev/null; then
+                echo -e "${GREEN}✓ Права установлены в контейнере (fallback метод)${NC}"
+            else
+                echo -e "${YELLOW}⚠ Не удалось установить права в контейнере (возможно, контейнер не запущен)${NC}"
+            fi
         fi
     else
         echo -e "${YELLOW}⚠ Контейнеры не запущены${NC}"

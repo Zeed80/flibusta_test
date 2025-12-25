@@ -24,6 +24,47 @@ DOWNLOAD_SQL=0
 DOWNLOAD_COVERS=0
 UPDATE_LIBRARY=0
 
+# Загрузка переменных из .env если файл существует
+load_env_file() {
+    if [ -f ".env" ]; then
+        # Загружаем переменные из .env, игнорируя комментарии и пустые строки
+        export $(grep -v '^#' .env | grep -v '^$' | xargs)
+        log "${GREEN}✓ Переменные загружены из .env${NC}"
+    fi
+}
+
+# Инициализация путей из переменных окружения или .env
+init_paths_from_env() {
+    # Загружаем .env если существует
+    if [ -f ".env" ]; then
+        # Используем source для загрузки переменных (совместимо с bash)
+        set -a
+        source .env 2>/dev/null || true
+        set +a
+    fi
+    
+    # Используем переменные окружения если они установлены
+    if [ -n "${FLIBUSTA_BOOKS_PATH:-}" ]; then
+        BOOKS_DIR="$FLIBUSTA_BOOKS_PATH"
+        log "${BLUE}Путь к книгам из переменной окружения: $BOOKS_DIR${NC}"
+    fi
+    
+    if [ -n "${FLIBUSTA_SQL_PATH:-}" ]; then
+        SQL_DIR="$FLIBUSTA_SQL_PATH"
+        log "${BLUE}Путь к SQL файлам из переменной окружения: $SQL_DIR${NC}"
+    fi
+    
+    if [ -n "${FLIBUSTA_PORT:-}" ]; then
+        WEB_PORT="$FLIBUSTA_PORT"
+        log "${BLUE}Порт веб-сервера из переменной окружения: $WEB_PORT${NC}"
+    fi
+    
+    if [ -n "${FLIBUSTA_DB_PORT:-}" ]; then
+        DB_PORT="$FLIBUSTA_DB_PORT"
+        log "${BLUE}Порт БД из переменной окружения: $DB_PORT${NC}"
+    fi
+}
+
 # Логирование
 LOG_FILE="install.log"
 log() {
@@ -71,37 +112,70 @@ init_directories() {
     log "${BLUE}Создание директорий...${NC}"
     local errors=0
     
+    # Проверка наличия скрипта
     if [ -f "scripts/init_directories.sh" ]; then
         if ! bash scripts/init_directories.sh; then
             log "${RED}✗ Ошибка при выполнении scripts/init_directories.sh${NC}"
             errors=1
         fi
     else
-        # Создание основных директорий
-        if ! mkdir -p FlibustaSQL Flibusta.Net cache secrets 2>/dev/null; then
-            log "${RED}✗ Ошибка при создании основных директорий${NC}"
+        log "${YELLOW}⚠ Скрипт scripts/init_directories.sh не найден, создаем директории вручную${NC}"
+        
+        # Создание основных директорий с проверкой
+        local dirs=("FlibustaSQL" "Flibusta.Net" "cache" "secrets")
+        for dir in "${dirs[@]}"; do
+            if ! mkdir -p "$dir" 2>/dev/null; then
+                log "${RED}✗ Ошибка при создании директории: $dir${NC}"
+                errors=1
+            fi
+        done
+        
+        # Создание поддиректорий кэша с проверкой
+        local cache_dirs=("cache/authors" "cache/covers" "cache/tmp" "cache/opds")
+        for dir in "${cache_dirs[@]}"; do
+            if ! mkdir -p "$dir" 2>/dev/null; then
+                log "${RED}✗ Ошибка при создании директории: $dir${NC}"
+                errors=1
+            fi
+        done
+        
+        # Установка прав доступа с проверкой
+        if [ -d "FlibustaSQL" ] && [ -d "Flibusta.Net" ]; then
+            chmod 755 FlibustaSQL Flibusta.Net 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на FlibustaSQL/Flibusta.Net${NC}"
+        else
+            log "${YELLOW}⚠ Директории FlibustaSQL или Flibusta.Net не существуют для установки прав${NC}"
+        fi
+        
+        if [ -d "cache" ]; then
+            chmod 777 cache cache/authors cache/covers cache/tmp cache/opds 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на cache${NC}"
+        else
+            log "${RED}✗ Директория cache не существует${NC}"
             errors=1
         fi
         
-        # Создание поддиректорий кэша
-        if ! mkdir -p cache/authors cache/covers cache/tmp cache/opds 2>/dev/null; then
-            log "${RED}✗ Ошибка при создании поддиректорий кэша${NC}"
+        if [ -d "secrets" ]; then
+            chmod 700 secrets 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на secrets${NC}"
+        else
+            log "${RED}✗ Директория secrets не существует${NC}"
             errors=1
         fi
-        
-        # Установка прав доступа
-        chmod 755 FlibustaSQL Flibusta.Net 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на FlibustaSQL/Flibusta.Net${NC}"
-        chmod 777 cache cache/authors cache/covers cache/tmp cache/opds 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на cache${NC}"
-        chmod 700 secrets 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на secrets${NC}"
     fi
     
-    # Проверка успешности создания директорий
+    # Финальная проверка успешности создания директорий
     if [ $errors -eq 0 ]; then
-        if [ -d "cache" ] && [ -d "secrets" ]; then
+        local required_dirs=("cache" "secrets")
+        local missing_dirs=()
+        for dir in "${required_dirs[@]}"; do
+            if [ ! -d "$dir" ]; then
+                missing_dirs+=("$dir")
+            fi
+        done
+        
+        if [ ${#missing_dirs[@]} -eq 0 ]; then
             log "${GREEN}✓ Директории созданы${NC}"
             return 0
         else
-            log "${RED}✗ Некоторые директории не были созданы${NC}"
+            log "${RED}✗ Некоторые директории не были созданы: ${missing_dirs[*]}${NC}"
             return 1
         fi
     else
@@ -215,6 +289,27 @@ create_env_file() {
     
     sed -i "s/FLIBUSTA_PORT=.*/FLIBUSTA_PORT=$WEB_PORT/" .env
     sed -i "s/FLIBUSTA_DB_PORT=.*/FLIBUSTA_DB_PORT=$DB_PORT/" .env
+    
+    # Сохранение путей если они были изменены
+    if [ "$SQL_DIR" != "./FlibustaSQL" ]; then
+        # Экранируем слэши для sed
+        SQL_DIR_ESCAPED=$(echo "$SQL_DIR" | sed 's/\//\\\//g')
+        if grep -q "^FLIBUSTA_SQL_PATH=" .env; then
+            sed -i "s|^FLIBUSTA_SQL_PATH=.*|FLIBUSTA_SQL_PATH=$SQL_DIR_ESCAPED|" .env
+        else
+            echo "FLIBUSTA_SQL_PATH=$SQL_DIR" >> .env
+        fi
+    fi
+    
+    if [ "$BOOKS_DIR" != "./Flibusta.Net" ]; then
+        # Экранируем слэши для sed
+        BOOKS_DIR_ESCAPED=$(echo "$BOOKS_DIR" | sed 's/\//\\\//g')
+        if grep -q "^FLIBUSTA_BOOKS_PATH=" .env; then
+            sed -i "s|^FLIBUSTA_BOOKS_PATH=.*|FLIBUSTA_BOOKS_PATH=$BOOKS_DIR_ESCAPED|" .env
+        else
+            echo "FLIBUSTA_BOOKS_PATH=$BOOKS_DIR" >> .env
+        fi
+    fi
     
     # Сохранение пароля в secrets
     if [ -n "$DB_PASSWORD" ]; then
@@ -491,18 +586,16 @@ start_containers() {
     # Установка прав на выполнение для скриптов в tools/ (только если контейнер готов)
     if [ $php_ready -eq 1 ]; then
         log "${BLUE}Установка прав на выполнение для скриптов...${NC}"
-        if $compose_cmd exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null" 2>/dev/null; then
+        # Используем скрипт fix_permissions.sh для установки прав
+        if $compose_cmd exec -T php-fpm sh -c "sh /application/scripts/fix_permissions.sh >/dev/null 2>&1" 2>/dev/null; then
             log "${GREEN}✓ Права на выполнение установлены${NC}"
         else
-            log "${YELLOW}⚠ Не удалось установить права на выполнение скриптов${NC}"
-        fi
-        
-        # Установка прав на запись для директории cache в контейнере
-        log "${BLUE}Установка прав на запись для директории cache в контейнере...${NC}"
-        if $compose_cmd exec -T php-fpm sh -c "chmod -R 777 /application/cache 2>/dev/null" 2>/dev/null; then
-            log "${GREEN}✓ Права на cache в контейнере установлены${NC}"
-        else
-            log "${YELLOW}⚠ Не удалось установить права на cache в контейнере${NC}"
+            # Fallback на старый метод если скрипт недоступен
+            if $compose_cmd exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null && chmod -R 777 /application/cache /application/sql/psql 2>/dev/null" 2>/dev/null; then
+                log "${GREEN}✓ Права на выполнение установлены (fallback метод)${NC}"
+            else
+                log "${YELLOW}⚠ Не удалось установить права на выполнение скриптов${NC}"
+            fi
         fi
     else
         log "${YELLOW}⚠ Контейнер php-fpm не готов, пропуск установки прав в контейнере${NC}"
@@ -862,6 +955,9 @@ parse_arguments() {
 main() {
     echo -e "${BLUE}Flibusta Local Mirror - Установка${NC}"
     echo ""
+    
+    # Загрузка путей из .env если файл существует (до парсинга аргументов)
+    init_paths_from_env
     
     # Парсинг аргументов
     parse_arguments "$@"

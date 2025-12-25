@@ -425,6 +425,138 @@ sudo apt-get install dialog
 3. Измените пароль в PostgreSQL: `docker-compose exec postgres psql -U postgres -c "ALTER USER flibusta PASSWORD 'new_password';"`
 4. Перезапустите контейнеры: `docker-compose restart`
 
+## Вспомогательные скрипты
+
+Проект включает набор вспомогательных скриптов в директории `scripts/` для автоматизации различных задач:
+
+| Скрипт | Назначение | Использование |
+|--------|-----------|---------------|
+| `check_requirements.sh` | Проверка системных требований перед установкой | `./scripts/check_requirements.sh` |
+| `init_directories.sh` | Создание необходимых директорий проекта | `./scripts/init_directories.sh` |
+| `init_database.sh` | Инициализация базы данных (импорт SQL файлов) | `./scripts/init_database.sh` |
+| `fix_permissions.sh` | Исправление прав доступа на файлы и директории | `./scripts/fix_permissions.sh` |
+| `fix_all.sh` | Автоматическое исправление всех проблем | `./scripts/fix_all.sh` |
+| `diagnose.sh` | Диагностика проблем системы | `./scripts/diagnose.sh` |
+| `validate_config.sh` | Валидация конфигурации (.env файл) | `./scripts/validate_config.sh` |
+| `verify_installation.sh` | Проверка успешности установки | `./scripts/verify_installation.sh` |
+
+### Описание скриптов
+
+#### check_requirements.sh
+
+Проверяет наличие и версии необходимых компонентов:
+- Docker и Docker Compose
+- Свободные порты (27100, 27101)
+- Свободное место на диске
+- Необходимые пакеты (curl, wget, unzip)
+
+**Использование:**
+```bash
+./scripts/check_requirements.sh
+```
+
+#### init_directories.sh
+
+Создает все необходимые директории проекта:
+- `FlibustaSQL/` - для SQL файлов
+- `Flibusta.Net/` - для архивов книг
+- `cache/` - для кэша (authors, covers, tmp, opds)
+- `secrets/` - для секретов
+
+Устанавливает правильные права доступа на созданные директории.
+
+**Использование:**
+```bash
+./scripts/init_directories.sh
+```
+
+#### init_database.sh
+
+Инициализирует базу данных, импортируя SQL файлы из `FlibustaSQL/`.
+
+**Использование:**
+```bash
+# На хосте
+./scripts/init_database.sh
+
+# Внутри Docker контейнера
+docker-compose exec php-fpm sh /application/scripts/init_database.sh
+```
+
+#### fix_permissions.sh
+
+Исправляет права доступа на:
+- Скрипты в `application/tools/`
+- Директории кэша
+- SQL директории
+
+Может работать как на хосте, так и внутри Docker контейнера.
+
+**Использование:**
+```bash
+# На хосте
+./scripts/fix_permissions.sh
+
+# Внутри Docker контейнера
+docker-compose exec php-fpm sh /application/scripts/fix_permissions.sh
+```
+
+#### fix_all.sh
+
+Автоматически исправляет все проблемы:
+1. Исправляет права доступа
+2. Создает необходимые директории
+3. Запускает диагностику
+4. Исправляет проблемы в Docker контейнерах (если запущены)
+
+**Использование:**
+```bash
+./scripts/fix_all.sh
+```
+
+#### diagnose.sh
+
+Проводит полную диагностику системы:
+- Проверяет права доступа
+- Проверяет наличие необходимых файлов
+- Проверяет состояние базы данных
+- Проверяет работоспособность веб-интерфейса
+
+**Использование:**
+```bash
+# На хосте
+./scripts/diagnose.sh
+
+# Внутри Docker контейнера
+docker-compose exec php-fpm sh /application/scripts/diagnose.sh
+```
+
+#### validate_config.sh
+
+Проверяет корректность конфигурации в `.env` файле:
+- Наличие обязательных переменных
+- Корректность значений портов
+- Существование указанных путей
+
+**Использование:**
+```bash
+./scripts/validate_config.sh
+```
+
+#### verify_installation.sh
+
+Проверяет успешность установки:
+- Статус контейнеров
+- Доступность веб-интерфейса
+- Доступность OPDS каталога
+- Подключение к базе данных
+- Наличие данных в БД
+
+**Использование:**
+```bash
+./scripts/verify_installation.sh
+```
+
 ## Дополнительная информация
 
 - [README.md](../README.md) - общая информация о проекте

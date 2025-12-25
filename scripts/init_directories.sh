@@ -8,31 +8,66 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Загрузка переменных из .env если файл существует
+if [ -f ".env" ]; then
+    set -a
+    source .env 2>/dev/null || true
+    set +a
+fi
+
+# Определение путей из переменных окружения или значений по умолчанию
+SQL_DIR="${FLIBUSTA_SQL_PATH:-./FlibustaSQL}"
+BOOKS_DIR="${FLIBUSTA_BOOKS_PATH:-./Flibusta.Net}"
+
 echo -e "${GREEN}Создание директорий...${NC}"
 
 # Основные директории
-mkdir -p FlibustaSQL
-mkdir -p Flibusta.Net
+mkdir -p "$SQL_DIR"
+mkdir -p "$BOOKS_DIR"
 mkdir -p cache
 mkdir -p secrets
 
-# Поддиректории кэша
-mkdir -p cache/authors
-mkdir -p cache/covers
-mkdir -p cache/tmp
-mkdir -p cache/opds
+# Поддиректории кэша с проверкой
+for subdir in cache/authors cache/covers cache/tmp cache/opds; do
+    if ! mkdir -p "$subdir" 2>/dev/null; then
+        echo -e "${RED}✗ Ошибка при создании директории: $subdir${NC}"
+        ERRORS=$((ERRORS + 1))
+    fi
+done
 
-# Установка прав доступа
-chmod 755 FlibustaSQL Flibusta.Net 2>/dev/null || true
-chmod 777 cache cache/authors cache/covers cache/tmp cache/opds 2>/dev/null || true
-chmod 700 secrets 2>/dev/null || true
+# Установка прав доступа с проверкой существования директорий
+if [ -d "$SQL_DIR" ] && [ -d "$BOOKS_DIR" ]; then
+    chmod 755 "$SQL_DIR" "$BOOKS_DIR" 2>/dev/null || echo -e "${YELLOW}⚠ Не удалось установить права на $SQL_DIR или $BOOKS_DIR${NC}"
+else
+    echo -e "${YELLOW}⚠ Некоторые директории не существуют для установки прав${NC}"
+fi
 
-# Создание .gitkeep файлов для пустых директорий
-touch FlibustaSQL/.gitkeep
-touch Flibusta.Net/.gitkeep
-touch cache/authors/.gitkeep
-touch cache/covers/.gitkeep
-touch cache/tmp/.gitkeep
-touch cache/opds/.gitkeep
+if [ -d "cache" ]; then
+    chmod 777 cache cache/authors cache/covers cache/tmp cache/opds 2>/dev/null || echo -e "${YELLOW}⚠ Не удалось установить права на cache${NC}"
+else
+    echo -e "${RED}✗ Директория cache не существует${NC}"
+    ERRORS=$((ERRORS + 1))
+fi
 
-echo -e "${GREEN}✓ Директории созданы${NC}"
+if [ -d "secrets" ]; then
+    chmod 700 secrets 2>/dev/null || echo -e "${YELLOW}⚠ Не удалось установить права на secrets${NC}"
+else
+    echo -e "${RED}✗ Директория secrets не существует${NC}"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Создание .gitkeep файлов для пустых директорий (только если директории существуют)
+[ -d "$SQL_DIR" ] && touch "$SQL_DIR/.gitkeep" 2>/dev/null || true
+[ -d "$BOOKS_DIR" ] && touch "$BOOKS_DIR/.gitkeep" 2>/dev/null || true
+[ -d "cache/authors" ] && touch cache/authors/.gitkeep 2>/dev/null || true
+[ -d "cache/covers" ] && touch cache/covers/.gitkeep 2>/dev/null || true
+[ -d "cache/tmp" ] && touch cache/tmp/.gitkeep 2>/dev/null || true
+[ -d "cache/opds" ] && touch cache/opds/.gitkeep 2>/dev/null || true
+
+if [ $ERRORS -eq 0 ]; then
+    echo -e "${GREEN}✓ Директории созданы${NC}"
+    exit 0
+else
+    echo -e "${RED}✗ Обнаружены ошибки при создании директорий ($ERRORS ошибок)${NC}"
+    exit 1
+fi
