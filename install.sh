@@ -24,13 +24,11 @@ DOWNLOAD_SQL=0
 DOWNLOAD_COVERS=0
 UPDATE_LIBRARY=0
 
-# Загрузка переменных из .env если файл существует
-load_env_file() {
-    if [ -f ".env" ]; then
-        # Загружаем переменные из .env, игнорируя комментарии и пустые строки
-        export $(grep -v '^#' .env | grep -v '^$' | xargs)
-        log "${GREEN}✓ Переменные загружены из .env${NC}"
-    fi
+# Логирование (определяем первым, так как используется другими функциями)
+LOG_FILE="install.log"
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+    echo "$1"
 }
 
 # Инициализация путей из переменных окружения или .env
@@ -65,13 +63,6 @@ init_paths_from_env() {
     fi
 }
 
-# Логирование
-LOG_FILE="install.log"
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
-    echo "$1"
-}
-
 # Генерация пароля
 generate_password() {
     if command -v openssl &> /dev/null; then
@@ -90,13 +81,16 @@ check_requirements() {
     
     log "${BLUE}Проверка требований...${NC}"
     if [ -f "scripts/check_requirements.sh" ]; then
-        bash scripts/check_requirements.sh
+        # Запускаем проверку требований и перехватываем код выхода
+        set +e  # Временно отключаем set -e для обработки кода выхода
+        bash scripts/check_requirements.sh 2>&1
         local exit_code=$?
+        set -e  # Включаем обратно
         
         # Скрипт возвращает 0 даже при наличии предупреждений
         # Предупреждения не критичны, установка продолжается
         if [ $exit_code -ne 0 ]; then
-            log "${RED}Проверка требований не пройдена${NC}"
+            log "${RED}Проверка требований не пройдена (код выхода: $exit_code)${NC}"
             log "${RED}Критические ошибки обнаружены. Установка остановлена.${NC}"
             exit 1
         else
@@ -105,6 +99,9 @@ check_requirements() {
     else
         log "${YELLOW}Скрипт проверки требований не найден${NC}"
     fi
+    
+    # Функция завершена успешно
+    return 0
 }
 
 # Создание директорий
@@ -411,6 +408,8 @@ normalize_path() {
 # Копирование данных или создание символических ссылок
 copy_data() {
     log "${BLUE}Обработка путей к данным...${NC}"
+    log "${BLUE}SQL_DIR: $SQL_DIR${NC}"
+    log "${BLUE}BOOKS_DIR: $BOOKS_DIR${NC}"
     
     # Валидация и нормализация пути к SQL файлам
     if [ "$SQL_DIR" != "./FlibustaSQL" ]; then
@@ -430,8 +429,8 @@ copy_data() {
                 if ln -s "$SQL_DIR" FlibustaSQL 2>/dev/null; then
                     log "${GREEN}✓ Символьная ссылка на SQL файлы создана: $SQL_DIR${NC}"
                 else
-                    log "${RED}✗ Ошибка при создании символической ссылки${NC}"
-                    return 1
+                    log "${YELLOW}⚠ Не удалось создать символическую ссылку, используем путь напрямую${NC}"
+                    # Не возвращаем ошибку, просто используем путь напрямую
                 fi
             else
                 log "${BLUE}Копирование SQL файлов...${NC}"
@@ -447,6 +446,7 @@ copy_data() {
     # Валидация и нормализация пути к книгам
     if [ "$BOOKS_DIR" != "./Flibusta.Net" ]; then
         if ! validate_path "$BOOKS_DIR" "архивам книг"; then
+            log "${YELLOW}⚠ Не удалось валидировать путь к книгам: $BOOKS_DIR${NC}"
             log "${YELLOW}⚠ Используется путь по умолчанию: ./Flibusta.Net${NC}"
             BOOKS_DIR="./Flibusta.Net"
         else
@@ -462,8 +462,8 @@ copy_data() {
                 if ln -s "$BOOKS_DIR" Flibusta.Net 2>/dev/null; then
                     log "${GREEN}✓ Символьная ссылка на книги создана: $BOOKS_DIR${NC}"
                 else
-                    log "${RED}✗ Ошибка при создании символической ссылки${NC}"
-                    return 1
+                    log "${YELLOW}⚠ Не удалось создать символическую ссылку, используем путь напрямую${NC}"
+                    # Не возвращаем ошибку, путь будет использован напрямую через переменную окружения
                 fi
             else
                 log "${BLUE}Копирование архивов книг...${NC}"
@@ -477,6 +477,7 @@ copy_data() {
     fi
     
     log "${GREEN}✓ Обработка путей к данным завершена${NC}"
+    return 0
 }
 
 # Получение команды docker-compose
@@ -973,22 +974,56 @@ main() {
     fi
     
     # Проверка требований
+    # Временно отключаем set -e для корректной обработки кода выхода
+    set +e
     check_requirements
+    local check_result=$?
+    set -e
+    
+    # Проверка требований может вернуть 0 даже с предупреждениями
+    # Критические ошибки обрабатываются внутри функции
+    if [ $check_result -ne 0 ]; then
+        log "${RED}Критические ошибки при проверке требований. Установка остановлена.${NC}"
+        exit 1
+    fi
+    
+    # Продолжаем выполнение после проверки требований
+    log "${BLUE}Продолжение установки после проверки требований...${NC}"
     
     # Создание директорий
     log "${BLUE}Создание директорий...${NC}"
-    init_directories
+    if ! init_directories; then
+        log "${RED}✗ Ошибка при создании директорий${NC}"
+        log "${YELLOW}Проверьте права доступа и наличие свободного места${NC}"
+        exit 1
+    fi
     
     # Копирование данных (с валидацией путей)
+    # Временно отключаем set -e для обработки ошибок в copy_data
+    set +e
     copy_data
+    local copy_result=$?
+    set -e
+    
+    if [ $copy_result -ne 0 ]; then
+        log "${YELLOW}⚠ Ошибки при обработке путей к данным, но продолжаем установку${NC}"
+    fi
     
     # Создание .env
-    create_env_file
+    log "${BLUE}Создание файла конфигурации .env...${NC}"
+    if ! create_env_file; then
+        log "${RED}✗ Ошибка при создании .env файла${NC}"
+        exit 1
+    fi
     
     # Скачивание данных (до запуска контейнеров)
+    log "${BLUE}Начало скачивания данных...${NC}"
+    set +e  # Временно отключаем set -e для обработки ошибок скачивания
     download_sql
     download_covers
     update_library
+    set -e  # Включаем обратно
+    log "${BLUE}Скачивание данных завершено${NC}"
     
     # Проверка наличия файла секретов перед сборкой и запуском
     if [ ! -f "secrets/flibusta_pwd.txt" ]; then
