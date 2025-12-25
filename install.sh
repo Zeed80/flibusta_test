@@ -272,16 +272,44 @@ interactive_setup() {
 create_env_file() {
     log "${BLUE}Создание файла конфигурации...${NC}"
     
-    if [ ! -f ".env.example" ]; then
-        log "${RED}Файл .env.example не найден${NC}"
-        exit 1
+    # Создаем .env из примера или с нуля
+    if [ -f ".env.example" ]; then
+        cp .env.example .env
+        log "${GREEN}✓ Файл .env создан из .env.example${NC}"
+    else
+        log "${YELLOW}⚠ Файл .env.example не найден, создаем .env с нуля${NC}"
+        # Создаем базовый .env файл
+        cat > .env << EOF
+# Flibusta Local Mirror - Конфигурация
+FLIBUSTA_DBUSER=flibusta
+FLIBUSTA_DBNAME=flibusta
+FLIBUSTA_DBTYPE=postgres
+FLIBUSTA_DBHOST=postgres
+FLIBUSTA_DBPASSWORD=flibusta
+FLIBUSTA_WEBROOT=
+FLIBUSTA_PORT=27100
+FLIBUSTA_DB_PORT=27101
+FLIBUSTA_PHP_VERSION=8.2
+FLIBUSTA_PROMETHEUS_PORT=9090
+EOF
+        log "${GREEN}✓ Базовый файл .env создан${NC}"
     fi
     
-    cp .env.example .env
-    
-    # Замена значений
+    # Замена значений пароля
     if [ -n "$DB_PASSWORD" ]; then
-        sed -i "s/FLIBUSTA_DBPASSWORD=.*/FLIBUSTA_DBPASSWORD=$DB_PASSWORD/" .env
+        # Экранируем специальные символы в пароле для sed
+        DB_PASSWORD_ESCAPED=$(echo "$DB_PASSWORD" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        
+        # Проверяем, есть ли уже строка FLIBUSTA_DBPASSWORD в .env
+        if grep -q "^FLIBUSTA_DBPASSWORD=" .env; then
+            # Заменяем существующую строку
+            sed -i "s|^FLIBUSTA_DBPASSWORD=.*|FLIBUSTA_DBPASSWORD=$DB_PASSWORD_ESCAPED|" .env
+            log "${GREEN}✓ Пароль обновлен в .env${NC}"
+        else
+            # Добавляем новую строку
+            echo "FLIBUSTA_DBPASSWORD=$DB_PASSWORD" >> .env
+            log "${GREEN}✓ Пароль добавлен в .env${NC}"
+        fi
     fi
     
     sed -i "s/FLIBUSTA_PORT=.*/FLIBUSTA_PORT=$WEB_PORT/" .env
@@ -329,6 +357,31 @@ create_env_file() {
         else
             log "${RED}✗ Ошибка при создании secrets/flibusta_pwd.txt${NC}"
             return 1
+        fi
+        
+        # Проверка, что пароль действительно записан в .env
+        local env_password_check=$(grep "^FLIBUSTA_DBPASSWORD=" .env | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+        if [ -z "$env_password_check" ] || [ "$env_password_check" != "$DB_PASSWORD" ]; then
+            log "${RED}✗ Ошибка: пароль не записан в .env или не совпадает${NC}"
+            log "${YELLOW}Попытка исправления...${NC}"
+            # Пробуем еще раз записать пароль
+            if grep -q "^FLIBUSTA_DBPASSWORD=" .env; then
+                DB_PASSWORD_ESCAPED=$(echo "$DB_PASSWORD" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                sed -i "s|^FLIBUSTA_DBPASSWORD=.*|FLIBUSTA_DBPASSWORD=$DB_PASSWORD_ESCAPED|" .env
+            else
+                echo "FLIBUSTA_DBPASSWORD=$DB_PASSWORD" >> .env
+            fi
+            # Проверяем еще раз
+            env_password_check=$(grep "^FLIBUSTA_DBPASSWORD=" .env | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            if [ "$env_password_check" = "$DB_PASSWORD" ]; then
+                log "${GREEN}✓ Пароль успешно записан в .env${NC}"
+            else
+                log "${RED}✗ Критическая ошибка: не удалось записать пароль в .env${NC}"
+                log "${RED}Проверьте файл .env вручную${NC}"
+                return 1
+            fi
+        else
+            log "${GREEN}✓ Пароль подтвержден в .env${NC}"
         fi
     else
         log "${YELLOW}⚠ Пароль БД не указан, файл secrets/flibusta_pwd.txt не создан${NC}"
