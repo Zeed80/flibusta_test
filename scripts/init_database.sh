@@ -46,20 +46,33 @@ if [ ! -d "/application/sql" ] || [ -z "$(find /application/sql -maxdepth 1 -typ
 fi
 
 # Ожидание готовности PostgreSQL
-echo -e "${GREEN}Ожидание готовности PostgreSQL...${NC}"
+log_success "Ожидание готовности PostgreSQL..."
 i=1
-while [ $i -le 30 ]; do
+postgres_ready=0
+while [ $i -le 60 ]; do
     if $COMPOSE_CMD exec -T postgres pg_isready -U flibusta -d flibusta > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ PostgreSQL готов${NC}"
+        postgres_ready=1
+        log_success "PostgreSQL готов"
         break
     fi
-    if [ $i -eq 30 ]; then
-        echo -e "${RED}✗ PostgreSQL не готов после 30 попыток${NC}"
+    if [ $i -eq 60 ]; then
+        log_error "PostgreSQL не готов после 60 попыток"
         exit 1
     fi
     sleep 2
     i=$((i + 1))
 done
+
+# Дополнительная проверка: убеждаемся, что база данных доступна
+if [ $postgres_ready -eq 1 ]; then
+    log_success "Проверка доступности базы данных..."
+    if $COMPOSE_CMD exec -T postgres psql -U flibusta -d flibusta -c "SELECT 1;" > /dev/null 2>&1; then
+        log_success "База данных доступна"
+    else
+        log_error "База данных недоступна"
+        exit 1
+    fi
+fi
 
 # Создание необходимых директорий
 mkdir -p /application/sql/psql
@@ -129,10 +142,33 @@ if [ -f "/application/tools/update_vectors.sql" ]; then
 fi
 
 # Создание индекса zip-файлов
-echo -e "${GREEN}Создание индекса zip-файлов...${NC}"
+log_success "Создание индекса zip-файлов..."
 if [ -f "/application/tools/app_update_zip_list.php" ]; then
-    php /application/tools/app_update_zip_list.php > /dev/null 2>&1 || \
-        $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php > /dev/null 2>&1 || true
+    # Проверка готовности php-fpm перед использованием
+    php_fpm_ready=0
+    for i in 1 2 3 4 5; do
+        if $COMPOSE_CMD exec -T php-fpm sh -c "test -f /application/tools/app_update_zip_list.php" > /dev/null 2>&1; then
+            php_fpm_ready=1
+            break
+        fi
+        sleep 1
+    done
+    
+    if [ $php_fpm_ready -eq 1 ]; then
+        if $COMPOSE_CMD exec -T php-fpm php /application/tools/app_update_zip_list.php > /dev/null 2>&1; then
+            log_success "Индекс zip-файлов создан"
+        else
+            log_warning "Не удалось создать индекс zip-файлов через php-fpm"
+            # Попытка выполнить локально, если мы в контейнере
+            if php /application/tools/app_update_zip_list.php > /dev/null 2>&1; then
+                log_success "Индекс zip-файлов создан (локально)"
+            else
+                log_warning "Не удалось создать индекс zip-файлов"
+            fi
+        fi
+    else
+        log_warning "php-fpm не готов, пропуск создания индекса zip-файлов"
+    fi
 fi
 
 # Итоговый отчет об импорте

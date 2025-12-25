@@ -681,14 +681,28 @@ start_installation() {
         [ $DOWNLOAD_COVERS -eq 1 ] && download_flags+=" --download-covers"
         [ $UPDATE_LIBRARY -eq 1 ] && download_flags+=" --update-library"
         
-        bash install.sh --db-password "$DB_PASSWORD" \
+        # Запуск install.sh с перенаправлением вывода для прогресс-бара
+        # Используем eval для правильной обработки флагов
+        local install_result=0
+        if ! bash install.sh --db-password "$DB_PASSWORD" \
             --port "$WEB_PORT" \
             --db-port "$DB_PORT" \
             --sql-dir "$SQL_DIR" \
             --books-dir "$BOOKS_DIR" \
             $AUTO_INIT_FLAG \
             $download_flags \
-            --skip-checks > /dev/null 2>&1
+            --skip-checks > /dev/null 2>&1; then
+            install_result=$?
+        fi
+        
+        # Проверяем результат установки
+        if [ $install_result -ne 0 ]; then
+            echo "100"
+            echo "XXX"
+            echo "Ошибка при установке (код: $install_result)"
+            echo "XXX"
+            exit 1
+        fi
         echo "100"
         echo "XXX"
         echo "Завершено!"

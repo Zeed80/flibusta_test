@@ -69,16 +69,45 @@ check_requirements() {
 # Создание директорий
 init_directories() {
     log "${BLUE}Создание директорий...${NC}"
+    local errors=0
+    
     if [ -f "scripts/init_directories.sh" ]; then
-        bash scripts/init_directories.sh
+        if ! bash scripts/init_directories.sh; then
+            log "${RED}✗ Ошибка при выполнении scripts/init_directories.sh${NC}"
+            errors=1
+        fi
     else
-        mkdir -p FlibustaSQL Flibusta.Net cache secrets
-        mkdir -p cache/authors cache/covers cache/tmp cache/opds
-        chmod 755 FlibustaSQL Flibusta.Net 2>/dev/null || true
-        chmod 777 cache cache/authors cache/covers cache/tmp cache/opds 2>/dev/null || true
-        chmod 700 secrets 2>/dev/null || true
+        # Создание основных директорий
+        if ! mkdir -p FlibustaSQL Flibusta.Net cache secrets 2>/dev/null; then
+            log "${RED}✗ Ошибка при создании основных директорий${NC}"
+            errors=1
+        fi
+        
+        # Создание поддиректорий кэша
+        if ! mkdir -p cache/authors cache/covers cache/tmp cache/opds 2>/dev/null; then
+            log "${RED}✗ Ошибка при создании поддиректорий кэша${NC}"
+            errors=1
+        fi
+        
+        # Установка прав доступа
+        chmod 755 FlibustaSQL Flibusta.Net 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на FlibustaSQL/Flibusta.Net${NC}"
+        chmod 777 cache cache/authors cache/covers cache/tmp cache/opds 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на cache${NC}"
+        chmod 700 secrets 2>/dev/null || log "${YELLOW}⚠ Не удалось установить права на secrets${NC}"
     fi
-    log "${GREEN}✓ Директории созданы${NC}"
+    
+    # Проверка успешности создания директорий
+    if [ $errors -eq 0 ]; then
+        if [ -d "cache" ] && [ -d "secrets" ]; then
+            log "${GREEN}✓ Директории созданы${NC}"
+            return 0
+        else
+            log "${RED}✗ Некоторые директории не были созданы${NC}"
+            return 1
+        fi
+    else
+        log "${RED}✗ Ошибки при создании директорий${NC}"
+        return 1
+    fi
 }
 
 # Интерактивная настройка
@@ -189,47 +218,170 @@ create_env_file() {
     
     # Сохранение пароля в secrets
     if [ -n "$DB_PASSWORD" ]; then
-        echo -n "$DB_PASSWORD" > secrets/flibusta_pwd.txt
-        chmod 600 secrets/flibusta_pwd.txt
-        log "${GREEN}✓ Пароль сохранен в secrets/flibusta_pwd.txt${NC}"
+        # Убеждаемся, что директория secrets существует
+        if [ ! -d "secrets" ]; then
+            mkdir -p secrets
+            chmod 700 secrets
+            log "${GREEN}✓ Директория secrets создана${NC}"
+        fi
+        
+        # Создаем файл с паролем
+        if echo -n "$DB_PASSWORD" > secrets/flibusta_pwd.txt; then
+            # Устанавливаем правильные права доступа (только для владельца)
+            if chmod 600 secrets/flibusta_pwd.txt; then
+                log "${GREEN}✓ Пароль сохранен в secrets/flibusta_pwd.txt с правами 600${NC}"
+            else
+                log "${RED}✗ Ошибка при установке прав на secrets/flibusta_pwd.txt${NC}"
+                return 1
+            fi
+        else
+            log "${RED}✗ Ошибка при создании secrets/flibusta_pwd.txt${NC}"
+            return 1
+        fi
+    else
+        log "${YELLOW}⚠ Пароль БД не указан, файл secrets/flibusta_pwd.txt не создан${NC}"
+        log "${YELLOW}Убедитесь, что файл создан вручную перед запуском контейнеров${NC}"
     fi
     
     log "${GREEN}✓ Файл .env создан${NC}"
 }
 
-# Копирование данных или создание символических ссылок
-copy_data() {
-    if [ "$SQL_DIR" != "./FlibustaSQL" ] && [ -d "$SQL_DIR" ]; then
-        # Проверяем, является ли путь абсолютным
-        if [[ "$SQL_DIR" == /* ]]; then
-            log "${BLUE}Создание символической ссылки на SQL файлы...${NC}"
-            # Удаляем существующую директорию или ссылку
-            rm -rf FlibustaSQL 2>/dev/null || true
-            # Создаем символическую ссылку
-            ln -s "$SQL_DIR" FlibustaSQL
-            log "${GREEN}✓ Символьная ссылка на SQL файлы создана: $SQL_DIR${NC}"
+# Валидация пути
+validate_path() {
+    local path=$1
+    local path_type=$2
+    
+    # Проверка на пустой путь
+    if [ -z "$path" ]; then
+        log "${RED}✗ Путь к $path_type не указан${NC}"
+        return 1
+    fi
+    
+    # Нормализация пути (убираем лишние слэши)
+    path=$(echo "$path" | sed 's|//*|/|g')
+    
+    # Проверка существования пути
+    if [ ! -e "$path" ]; then
+        log "${YELLOW}⚠ Путь $path_type не существует: $path${NC}"
+        log "${BLUE}Создание директории...${NC}"
+        if mkdir -p "$path" 2>/dev/null; then
+            log "${GREEN}✓ Директория создана: $path${NC}"
         else
-            log "${BLUE}Копирование SQL файлов...${NC}"
-            cp -r "$SQL_DIR"/* FlibustaSQL/ 2>/dev/null || true
-            log "${GREEN}✓ SQL файлы скопированы${NC}"
+            log "${RED}✗ Не удалось создать директорию: $path${NC}"
+            return 1
         fi
     fi
     
-    if [ "$BOOKS_DIR" != "./Flibusta.Net" ] && [ -d "$BOOKS_DIR" ]; then
-        # Проверяем, является ли путь абсолютным
-        if [[ "$BOOKS_DIR" == /* ]]; then
-            log "${BLUE}Создание символической ссылки на книги...${NC}"
-            # Удаляем существующую директорию или ссылку
-            rm -rf Flibusta.Net 2>/dev/null || true
-            # Создаем символическую ссылку
-            ln -s "$BOOKS_DIR" Flibusta.Net
-            log "${GREEN}✓ Символьная ссылка на книги создана: $BOOKS_DIR${NC}"
+    # Проверка, что это директория
+    if [ ! -d "$path" ]; then
+        log "${RED}✗ Путь $path_type не является директорией: $path${NC}"
+        return 1
+    fi
+    
+    # Проверка прав на чтение
+    if [ ! -r "$path" ]; then
+        log "${RED}✗ Нет прав на чтение директории $path_type: $path${NC}"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Преобразование относительного пути в абсолютный
+normalize_path() {
+    local path=$1
+    
+    # Если путь уже абсолютный, возвращаем как есть
+    if [[ "$path" == /* ]]; then
+        echo "$path"
+        return
+    fi
+    
+    # Если путь начинается с ./, убираем это
+    if [[ "$path" == ./* ]]; then
+        path="${path#./}"
+    fi
+    
+    # Преобразуем в абсолютный путь относительно текущей директории
+    local abs_path="$(cd "$(dirname "$path")" 2>/dev/null && pwd)/$(basename "$path")"
+    
+    # Если путь не существует, создаем его
+    if [ ! -e "$abs_path" ]; then
+        mkdir -p "$abs_path" 2>/dev/null || true
+    fi
+    
+    echo "$abs_path"
+}
+
+# Копирование данных или создание символических ссылок
+copy_data() {
+    log "${BLUE}Обработка путей к данным...${NC}"
+    
+    # Валидация и нормализация пути к SQL файлам
+    if [ "$SQL_DIR" != "./FlibustaSQL" ]; then
+        if ! validate_path "$SQL_DIR" "SQL файлам"; then
+            log "${YELLOW}⚠ Используется путь по умолчанию: ./FlibustaSQL${NC}"
+            SQL_DIR="./FlibustaSQL"
         else
-            log "${BLUE}Копирование архивов книг...${NC}"
-            cp -r "$BOOKS_DIR"/* Flibusta.Net/ 2>/dev/null || true
-            log "${GREEN}✓ Архивы книг скопированы${NC}"
+            local sql_abs=$(normalize_path "$SQL_DIR")
+            log "${GREEN}✓ Путь к SQL файлам валиден: $sql_abs${NC}"
+            
+            # Проверяем, является ли путь абсолютным
+            if [[ "$SQL_DIR" == /* ]]; then
+                log "${BLUE}Создание символической ссылки на SQL файлы...${NC}"
+                # Удаляем существующую директорию или ссылку
+                rm -rf FlibustaSQL 2>/dev/null || true
+                # Создаем символическую ссылку
+                if ln -s "$SQL_DIR" FlibustaSQL 2>/dev/null; then
+                    log "${GREEN}✓ Символьная ссылка на SQL файлы создана: $SQL_DIR${NC}"
+                else
+                    log "${RED}✗ Ошибка при создании символической ссылки${NC}"
+                    return 1
+                fi
+            else
+                log "${BLUE}Копирование SQL файлов...${NC}"
+                if cp -r "$SQL_DIR"/* FlibustaSQL/ 2>/dev/null; then
+                    log "${GREEN}✓ SQL файлы скопированы${NC}"
+                else
+                    log "${YELLOW}⚠ Не удалось скопировать SQL файлы (возможно, директория пуста)${NC}"
+                fi
+            fi
         fi
     fi
+    
+    # Валидация и нормализация пути к книгам
+    if [ "$BOOKS_DIR" != "./Flibusta.Net" ]; then
+        if ! validate_path "$BOOKS_DIR" "архивам книг"; then
+            log "${YELLOW}⚠ Используется путь по умолчанию: ./Flibusta.Net${NC}"
+            BOOKS_DIR="./Flibusta.Net"
+        else
+            local books_abs=$(normalize_path "$BOOKS_DIR")
+            log "${GREEN}✓ Путь к архивам книг валиден: $books_abs${NC}"
+            
+            # Проверяем, является ли путь абсолютным
+            if [[ "$BOOKS_DIR" == /* ]]; then
+                log "${BLUE}Создание символической ссылки на книги...${NC}"
+                # Удаляем существующую директорию или ссылку
+                rm -rf Flibusta.Net 2>/dev/null || true
+                # Создаем символическую ссылку
+                if ln -s "$BOOKS_DIR" Flibusta.Net 2>/dev/null; then
+                    log "${GREEN}✓ Символьная ссылка на книги создана: $BOOKS_DIR${NC}"
+                else
+                    log "${RED}✗ Ошибка при создании символической ссылки${NC}"
+                    return 1
+                fi
+            else
+                log "${BLUE}Копирование архивов книг...${NC}"
+                if cp -r "$BOOKS_DIR"/* Flibusta.Net/ 2>/dev/null; then
+                    log "${GREEN}✓ Архивы книг скопированы${NC}"
+                else
+                    log "${YELLOW}⚠ Не удалось скопировать архивы книг (возможно, директория пуста)${NC}"
+                fi
+            fi
+        fi
+    fi
+    
+    log "${GREEN}✓ Обработка путей к данным завершена${NC}"
 }
 
 # Получение команды docker-compose
@@ -253,10 +405,11 @@ build_containers() {
     fi
     
     if $compose_cmd build; then
-        log "${GREEN}✓ Образы собраны${NC}"
+        log "${GREEN}✓ Образы собраны успешно${NC}"
         return 0
     else
         log "${RED}✗ Ошибка при сборке образов${NC}"
+        log "${RED}Проверьте логи выше для деталей${NC}"
         return 1
     fi
 }
@@ -272,42 +425,97 @@ start_containers() {
         export $(grep -v '^#' .env | xargs)
     fi
     
-    # Сборка если нужно (по умолчанию собираем)
-    if [ "${BUILD_ON_START:-1}" = "1" ]; then
-        $compose_cmd build --quiet 2>/dev/null || true
+    # Запуск контейнеров (образы должны быть собраны заранее)
+    if ! $compose_cmd up -d; then
+        log "${RED}✗ Ошибка при запуске контейнеров${NC}"
+        return 1
     fi
-    
-    $compose_cmd up -d
     
     log "${GREEN}✓ Контейнеры запущены${NC}"
     
-    # Установка прав на выполнение для скриптов в tools/
-    log "${BLUE}Установка прав на выполнение для скриптов...${NC}"
-    $compose_cmd exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py" 2>/dev/null || true
-    log "${GREEN}✓ Права на выполнение установлены${NC}"
-    
-    # Установка прав на запись для директории cache
-    log "${BLUE}Установка прав на запись для директории cache...${NC}"
-    $compose_cmd exec -T php-fpm sh -c "chmod -R 777 /application/cache 2>/dev/null || true" 2>/dev/null || true
-    # Также устанавливаем права на хосте (если возможно)
-    chmod -R 777 cache 2>/dev/null || true
-    log "${GREEN}✓ Права на cache установлены${NC}"
-    
-    # Ожидание готовности
+    # Ожидание готовности контейнеров перед установкой прав
     log "${BLUE}Ожидание готовности сервисов...${NC}"
     sleep 10
     
-    # Проверка health checks
+    # Проверка готовности контейнера php-fpm
+    local php_ready=0
     for i in {1..30}; do
-        if $compose_cmd ps | grep -q "healthy"; then
-            log "${GREEN}✓ Сервисы готовы${NC}"
+        if $compose_cmd exec -T php-fpm sh -c "test -d /application" >/dev/null 2>&1; then
+            php_ready=1
+            log "${GREEN}✓ Контейнер php-fpm готов${NC}"
             break
         fi
         if [ $i -eq 30 ]; then
-            log "${YELLOW}⚠ Таймаут ожидания готовности сервисов${NC}"
+            log "${YELLOW}⚠ Таймаут ожидания готовности php-fpm${NC}"
         fi
         sleep 2
     done
+    
+    # Проверка health checks для всех сервисов
+    log "${BLUE}Проверка health checks сервисов...${NC}"
+    local services_ready=0
+    local max_attempts=60  # Увеличено до 60 попыток (2 минуты)
+    
+    for i in $(seq 1 $max_attempts); do
+        # Проверяем статус всех сервисов через docker-compose ps
+        local ps_output=$($compose_cmd ps 2>/dev/null || echo "")
+        
+        # Проверяем наличие healthy статуса
+        if echo "$ps_output" | grep -qE "(healthy|Up)"; then
+            services_ready=1
+        fi
+        
+        # Дополнительная проверка: контейнеры запущены и работают
+        local running_count=$(echo "$ps_output" | grep -c "Up" || echo "0")
+        if [ $running_count -ge 2 ]; then  # Минимум postgres и php-fpm
+            services_ready=1
+        fi
+        
+        if [ $services_ready -eq 1 ]; then
+            log "${GREEN}✓ Сервисы готовы${NC}"
+            break
+        fi
+        
+        if [ $i -eq $max_attempts ]; then
+            log "${YELLOW}⚠ Таймаут ожидания готовности сервисов (попыток: $max_attempts)${NC}"
+            log "${YELLOW}Проверьте статус вручную: $compose_cmd ps${NC}"
+        else
+            # Показываем прогресс каждые 10 попыток
+            if [ $((i % 10)) -eq 0 ]; then
+                log "${BLUE}Ожидание готовности сервисов... (попытка $i/$max_attempts)${NC}"
+            fi
+        fi
+        sleep 2
+    done
+    
+    # Установка прав на выполнение для скриптов в tools/ (только если контейнер готов)
+    if [ $php_ready -eq 1 ]; then
+        log "${BLUE}Установка прав на выполнение для скриптов...${NC}"
+        if $compose_cmd exec -T php-fpm sh -c "cd /application/tools && chmod +x *.sh app_topg *.py 2>/dev/null" 2>/dev/null; then
+            log "${GREEN}✓ Права на выполнение установлены${NC}"
+        else
+            log "${YELLOW}⚠ Не удалось установить права на выполнение скриптов${NC}"
+        fi
+        
+        # Установка прав на запись для директории cache в контейнере
+        log "${BLUE}Установка прав на запись для директории cache в контейнере...${NC}"
+        if $compose_cmd exec -T php-fpm sh -c "chmod -R 777 /application/cache 2>/dev/null" 2>/dev/null; then
+            log "${GREEN}✓ Права на cache в контейнере установлены${NC}"
+        else
+            log "${YELLOW}⚠ Не удалось установить права на cache в контейнере${NC}"
+        fi
+    else
+        log "${YELLOW}⚠ Контейнер php-fpm не готов, пропуск установки прав в контейнере${NC}"
+    fi
+    
+    # Убеждаемся, что права на хосте установлены (на случай, если они не были установлены ранее)
+    if [ -d "cache" ]; then
+        if chmod -R 777 cache 2>/dev/null; then
+            log "${GREEN}✓ Права на cache на хосте установлены${NC}"
+        else
+            log "${YELLOW}⚠ Не удалось установить права на cache на хосте${NC}"
+        fi
+    fi
 }
 
 # Остановка контейнеров
@@ -384,10 +592,24 @@ download_sql() {
     export FLIBUSTA_SQL_DIR="$SQL_DIR"
     
     # Запускаем скрипт скачивания (без импорта, так как контейнеры могут быть еще не запущены)
+    local download_result=0
     if bash getsql.sh 2>&1 | grep -v "docker exec" | tee -a "$LOG_FILE"; then
-        log "${GREEN}✓ SQL файлы скачаны${NC}"
+        download_result=$?
     else
-        log "${YELLOW}⚠ Ошибка при скачивании SQL файлов${NC}"
+        download_result=$?
+    fi
+    
+    if [ $download_result -eq 0 ]; then
+        # Проверяем, что файлы действительно скачались
+        local sql_count=$(find "$SQL_DIR" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) 2>/dev/null | wc -l)
+        if [ $sql_count -gt 0 ]; then
+            log "${GREEN}✓ SQL файлы скачаны ($sql_count файлов)${NC}"
+        else
+            log "${YELLOW}⚠ Скрипт выполнен, но SQL файлы не найдены${NC}"
+        fi
+    else
+        log "${YELLOW}⚠ Ошибка при скачивании SQL файлов (код возврата: $download_result)${NC}"
+        return 1
     fi
 }
 
@@ -411,10 +633,18 @@ download_covers() {
     export FLIBUSTA_CACHE_DIR="cache"
     
     # Запускаем скрипт скачивания
+    local download_result=0
     if bash getcovers.sh 2>&1 | tee -a "$LOG_FILE"; then
+        download_result=$?
+    else
+        download_result=$?
+    fi
+    
+    if [ $download_result -eq 0 ]; then
         log "${GREEN}✓ Обложки скачаны${NC}"
     else
-        log "${YELLOW}⚠ Ошибка при скачивании обложек${NC}"
+        log "${YELLOW}⚠ Ошибка при скачивании обложек (код возврата: $download_result)${NC}"
+        return 1
     fi
 }
 
@@ -438,10 +668,18 @@ update_library() {
     export FLIBUSTA_DATA_DIR="$BOOKS_DIR"
     
     # Запускаем скрипт обновления
+    local update_result=0
     if bash update_daily.sh 2>&1 | tee -a "$LOG_FILE"; then
+        update_result=$?
+    else
+        update_result=$?
+    fi
+    
+    if [ $update_result -eq 0 ]; then
         log "${GREEN}✓ Библиотека обновлена${NC}"
     else
-        log "${YELLOW}⚠ Ошибка при обновлении библиотеки${NC}"
+        log "${YELLOW}⚠ Ошибка при обновлении библиотеки (код возврата: $update_result)${NC}"
+        return 1
     fi
 }
 
@@ -459,23 +697,66 @@ init_database() {
         compose_cmd="docker compose"
     fi
     
-    # Ожидание готовности контейнера
-    sleep 5
+    # Ожидание готовности контейнера postgres
+    log "${BLUE}Ожидание готовности PostgreSQL...${NC}"
+    local postgres_ready=0
+    for i in {1..30}; do
+        if $compose_cmd exec -T postgres pg_isready -U flibusta -d flibusta >/dev/null 2>&1; then
+            postgres_ready=1
+            log "${GREEN}✓ PostgreSQL готов${NC}"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            log "${RED}✗ PostgreSQL не готов после 30 попыток${NC}"
+            log "${YELLOW}Инициализацию БД нужно выполнить вручную позже${NC}"
+            return 1
+        fi
+        sleep 2
+    done
+    
+    # Ожидание готовности контейнера php-fpm
+    log "${BLUE}Ожидание готовности php-fpm...${NC}"
+    local php_ready=0
+    local php_container=""
+    for i in {1..30}; do
+        php_container=$(docker ps -q -f name=php-fpm | head -1)
+        if [ -n "$php_container" ] && $compose_cmd exec -T php-fpm sh -c "test -d /application" >/dev/null 2>&1; then
+            php_ready=1
+            log "${GREEN}✓ php-fpm готов${NC}"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            log "${RED}✗ php-fpm не готов после 30 попыток${NC}"
+            log "${YELLOW}Инициализацию БД нужно выполнить вручную позже${NC}"
+            return 1
+        fi
+        sleep 2
+    done
     
     # Копирование скрипта инициализации в контейнер
-    local php_container=$(docker ps -q -f name=php-fpm | head -1)
     if [ -n "$php_container" ] && [ -f "scripts/init_database.sh" ]; then
-        docker cp scripts/init_database.sh ${php_container}:/application/scripts/init_database.sh 2>/dev/null || true
+        if docker cp scripts/init_database.sh ${php_container}:/application/scripts/init_database.sh 2>/dev/null; then
+            log "${GREEN}✓ Скрипт инициализации скопирован в контейнер${NC}"
+        else
+            log "${YELLOW}⚠ Не удалось скопировать скрипт в контейнер${NC}"
+        fi
     fi
     
     # Запуск инициализации
-    if [ -n "$php_container" ]; then
-        docker exec ${php_container} sh /application/scripts/init_database.sh 2>/dev/null || \
-            $compose_cmd exec php-fpm sh /application/scripts/init_database.sh 2>/dev/null || true
+    if [ $php_ready -eq 1 ] && [ $postgres_ready -eq 1 ]; then
+        log "${BLUE}Запуск инициализации базы данных...${NC}"
+        if docker exec ${php_container} sh /application/scripts/init_database.sh 2>&1 || \
+            $compose_cmd exec -T php-fpm sh /application/scripts/init_database.sh 2>&1; then
             log "${GREEN}✓ Инициализация БД завершена${NC}"
+        else
+            log "${RED}✗ Ошибка при инициализации БД${NC}"
+            log "${YELLOW}Проверьте логи выше для деталей${NC}"
+            return 1
+        fi
     else
-        log "${YELLOW}⚠ Контейнер php-fpm не найден. Инициализацию БД нужно выполнить вручную.${NC}"
+        log "${YELLOW}⚠ Контейнеры не готовы. Инициализацию БД нужно выполнить вручную.${NC}"
         log "${YELLOW}Откройте: http://localhost:$WEB_PORT и перейдите в меню 'Сервис' -> 'Обновить базу'${NC}"
+        return 1
     fi
 }
 
@@ -483,9 +764,17 @@ init_database() {
 verify_installation() {
     log "${BLUE}Проверка установки...${NC}"
     if [ -f "scripts/verify_installation.sh" ]; then
-        bash scripts/verify_installation.sh
+        if bash scripts/verify_installation.sh; then
+            log "${GREEN}✓ Проверка установки пройдена${NC}"
+            return 0
+        else
+            local verify_exit=$?
+            log "${YELLOW}⚠ Проверка установки завершилась с предупреждениями (код: $verify_exit)${NC}"
+            return $verify_exit
+        fi
     else
         log "${YELLOW}Скрипт проверки установки не найден${NC}"
+        return 0
     fi
 }
 
@@ -594,7 +883,7 @@ main() {
     log "${BLUE}Создание директорий...${NC}"
     init_directories
     
-    # Копирование данных
+    # Копирование данных (с валидацией путей)
     copy_data
     
     # Создание .env
@@ -605,14 +894,47 @@ main() {
     download_covers
     update_library
     
+    # Проверка наличия файла секретов перед сборкой и запуском
+    if [ ! -f "secrets/flibusta_pwd.txt" ]; then
+        log "${RED}✗ Файл secrets/flibusta_pwd.txt не найден${NC}"
+        log "${RED}Файл должен быть создан функцией create_env_file()${NC}"
+        exit 1
+    fi
+    
+    # Проверка прав доступа к файлу секретов
+    local secret_perms=$(stat -c "%a" secrets/flibusta_pwd.txt 2>/dev/null || echo "000")
+    if [ "$secret_perms" != "600" ]; then
+        log "${YELLOW}⚠ Неправильные права доступа к secrets/flibusta_pwd.txt: $secret_perms (должно быть 600)${NC}"
+        log "${BLUE}Исправление прав доступа...${NC}"
+        if chmod 600 secrets/flibusta_pwd.txt; then
+            log "${GREEN}✓ Права доступа исправлены${NC}"
+        else
+            log "${RED}✗ Не удалось исправить права доступа${NC}"
+            exit 1
+        fi
+    fi
+    
+    # Сборка образов
+    if ! build_containers; then
+        log "${RED}Ошибка при сборке образов. Установка остановлена.${NC}"
+        exit 1
+    fi
+    
     # Запуск контейнеров
-    start_containers
+    if ! start_containers; then
+        log "${RED}Ошибка при запуске контейнеров. Установка остановлена.${NC}"
+        exit 1
+    fi
     
     # Инициализация БД
-    init_database
+    # Не критично, продолжаем даже при ошибке
+    if ! init_database; then
+        log "${YELLOW}⚠ Инициализация БД не выполнена. Выполните её вручную позже.${NC}"
+    fi
     
     # Проверка установки
-    verify_installation
+    # Не критично, только информационно
+    verify_installation || log "${YELLOW}⚠ Проверка установки завершилась с предупреждениями${NC}"
     
     echo ""
     echo -e "${GREEN}Установка завершена!${NC}"

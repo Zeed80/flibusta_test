@@ -145,20 +145,26 @@ main() {
     install_cmd+=" --quick"
     
     # Запуск установки
+    local install_result=0
     if [ $QUIET -eq 1 ]; then
-        eval $install_cmd > /dev/null 2>&1
+        if ! eval $install_cmd > /dev/null 2>&1; then
+            install_result=$?
+        fi
     else
-        eval $install_cmd
+        if ! eval $install_cmd; then
+            install_result=$?
+        fi
     fi
     
-    if [ $? -eq 0 ]; then
+    if [ $install_result -eq 0 ]; then
         log ""
         log -e "${GREEN}Установка завершена успешно!${NC}"
         log ""
         log "Веб-интерфейс: http://localhost:$WEB_PORT"
         log "OPDS каталог: http://localhost:$WEB_PORT/opds/"
+        return 0
     else
-        log -e "${RED}Ошибка при установке${NC}"
+        log -e "${RED}Ошибка при установке (код возврата: $install_result)${NC}"
         exit 1
     fi
 }
