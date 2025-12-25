@@ -181,19 +181,15 @@ try {
 				continue;
 			}
 			
-			// Парсим имя файла: ищем последние два числа в массиве
+			// Парсим имя файла: используем индексы массива [1] и [2]
 			$start_id = null;
 			$end_id = null;
 			
-			// Ищем последние два числа в массиве (идем с конца)
-			for ($i = count($fn) - 1; $i >= 0; $i--) {
-				if (is_numeric($fn[$i])) {
-					if ($end_id === null) {
-						$end_id = (int)$fn[$i];
-					} else if ($start_id === null) {
-						$start_id = (int)$fn[$i];
-						break;
-					}
+			// Проверяем наличие элементов массива и валидируем числовые значения
+			if (isset($fn[1]) && isset($fn[2])) {
+				if (is_numeric($fn[1]) && is_numeric($fn[2])) {
+					$start_id = (int)$fn[1];
+					$end_id = (int)$fn[2];
 				}
 			}
 			
