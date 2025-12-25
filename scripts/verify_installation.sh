@@ -76,29 +76,61 @@ check_web_interface() {
                     compose_cmd="docker compose"
                 fi
                 
-                # Проверка логов PHP-FPM
+                # Проверка логов PHP-FPM (стандартный лог ошибок PHP)
+                echo -e "${YELLOW}  Последние ошибки PHP из stderr:${NC}"
+                $compose_cmd logs php-fpm 2>/dev/null | grep -i "error\|fatal\|warning\|notice" | tail -n 10 | sed 's/^/    /' || echo "    Не найдено ошибок в логах контейнера"
+                
+                # Проверка логов PHP-FPM (файл логов)
                 if $compose_cmd exec -T php-fpm sh -c "test -f /var/log/nginx/application_php_errors.log" > /dev/null 2>&1; then
-                    echo -e "${YELLOW}  Последние ошибки PHP:${NC}"
-                    $compose_cmd exec -T php-fpm tail -n 10 /var/log/nginx/application_php_errors.log 2>/dev/null | sed 's/^/    /' || echo "    Не удалось прочитать логи"
+                    echo -e "${YELLOW}  Последние ошибки PHP из файла логов:${NC}"
+                    $compose_cmd exec -T php-fpm tail -n 15 /var/log/nginx/application_php_errors.log 2>/dev/null | sed 's/^/    /' || echo "    Не удалось прочитать логи"
+                else
+                    echo -e "${YELLOW}  Файл /var/log/nginx/application_php_errors.log не найден${NC}"
                 fi
+                
+                # Проверка синтаксиса PHP файлов
+                echo -e "${YELLOW}  Проверка синтаксиса основных PHP файлов...${NC}"
+                local syntax_errors=0
+                for php_file in "/application/dbinit.php" "/application/init.php" "/application/public/index.php"; do
+                    if $compose_cmd exec -T php-fpm php -l "$php_file" > /dev/null 2>&1; then
+                        echo -e "${GREEN}    ✓ $(basename $php_file) - синтаксис OK${NC}"
+                    else
+                        echo -e "${RED}    ✗ $(basename $php_file) - синтаксическая ошибка${NC}"
+                        $compose_cmd exec -T php-fpm php -l "$php_file" 2>&1 | sed 's/^/      /' || true
+                        syntax_errors=$((syntax_errors + 1))
+                    fi
+                done
                 
                 # Проверка подключения к БД через PHP
                 echo -e "${YELLOW}  Проверка подключения к БД через PHP...${NC}"
-                if $compose_cmd exec -T php-fpm php -r "require '/application/dbinit.php'; exit(isset(\$dbh) && \$dbh !== null ? 0 : 1);" > /dev/null 2>&1; then
+                local db_test_output=$($compose_cmd exec -T php-fpm php -r "require '/application/dbinit.php'; exit(isset(\$dbh) && \$dbh !== null ? 0 : 1);" 2>&1)
+                if [ $? -eq 0 ]; then
                     echo -e "${GREEN}    ✓ Подключение к БД через PHP работает${NC}"
                 else
                     echo -e "${RED}    ✗ Не удалось подключиться к БД через PHP${NC}"
-                    echo -e "${YELLOW}    Проверьте:${NC}"
-                    echo -e "${YELLOW}      - Пароль БД в secrets/flibusta_pwd.txt${NC}"
-                    echo -e "${YELLOW}      - Переменные окружения в .env${NC}"
-                    echo -e "${YELLOW}      - Логи: $compose_cmd logs php-fpm${NC}"
+                    if [ -n "$db_test_output" ]; then
+                        echo "$db_test_output" | sed 's/^/      /'
+                    fi
                 fi
                 
                 # Проверка логов nginx
                 echo -e "${YELLOW}  Проверка логов nginx...${NC}"
                 if $compose_cmd exec -T webserver sh -c "test -f /var/log/nginx/error.log" > /dev/null 2>&1; then
-                    echo -e "${YELLOW}  Последние ошибки nginx:${NC}"
-                    $compose_cmd exec -T webserver tail -n 5 /var/log/nginx/error.log 2>/dev/null | sed 's/^/    /' || echo "    Не удалось прочитать логи"
+                    local nginx_errors=$($compose_cmd exec -T webserver tail -n 5 /var/log/nginx/error.log 2>/dev/null)
+                    if [ -n "$nginx_errors" ]; then
+                        echo -e "${YELLOW}  Последние ошибки nginx:${NC}"
+                        echo "$nginx_errors" | sed 's/^/    /'
+                    else
+                        echo -e "${GREEN}    ✓ Ошибок в логах nginx не найдено${NC}"
+                    fi
+                fi
+                
+                # Попытка получить реальный ответ от сервера
+                echo -e "${YELLOW}  Попытка получить ответ от сервера...${NC}"
+                local response=$(curl -s "$WEB_URL" 2>&1 | head -n 20)
+                if [ -n "$response" ]; then
+                    echo -e "${YELLOW}  Первые 20 строк ответа:${NC}"
+                    echo "$response" | sed 's/^/    /'
                 fi
             fi
         fi
