@@ -61,6 +61,17 @@ chmod 777 /application/sql/psql 2>/dev/null || true
 # Используем cache директорию, так как там есть права на запись
 mkdir -p /application/cache
 echo "importing" > /application/cache/sql_status
+chmod 666 /application/cache/sql_status 2>/dev/null || true
+
+# Проверка подключения к базе данных
+echo -e "${YELLOW}Проверка подключения к базе данных...${NC}"
+if $SQL_CMD -c "SELECT 1;" >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Подключение к базе данных успешно${NC}" | tee -a /application/cache/sql_status
+else
+    echo -e "${RED}✗ Не удалось подключиться к базе данных${NC}" | tee -a /application/cache/sql_status
+    echo "=== Импорт завершен с ошибками (нет подключения к БД) ===" >> /application/cache/sql_status
+    exit 1
+fi
 
 # Распаковка sql.gz файлов
 # Проверяем наличие .gz файлов перед распаковкой
@@ -72,18 +83,47 @@ if ls /application/sql/*.gz 1> /dev/null 2>&1; then
     chmod 666 *.gz 2>/dev/null || true
     
     # Распаковываем каждый файл индивидуально с подробным выводом
+    GZ_ERRORS=0
     for gzfile in *.gz; do
         if [ -f "$gzfile" ]; then
-            echo "Распаковка: $gzfile"
+            echo "Распаковка: $gzfile" | tee -a /application/cache/sql_status
             # Используем gunzip вместо gzip -d для лучшей совместимости
-            gunzip -f -k "$gzfile" 2>&1 || {
-                echo -e "${RED}Ошибка при распаковке $gzfile${NC}" | tee -a /application/cache/sql_status
-            }
+            if gunzip -f -k "$gzfile" 2>&1 | tee -a /application/cache/sql_status; then
+                echo -e "${GREEN}✓ Распакован: $gzfile${NC}" | tee -a /application/cache/sql_status
+            else
+                echo -e "${RED}✗ Ошибка при распаковке $gzfile${NC}" | tee -a /application/cache/sql_status
+                GZ_ERRORS=$((GZ_ERRORS + 1))
+            fi
         fi
     done
+    
+    if [ $GZ_ERRORS -gt 0 ]; then
+        echo -e "${YELLOW}⚠ Обнаружено ошибок при распаковке: $GZ_ERRORS${NC}" | tee -a /application/cache/sql_status
+    fi
     echo -e "${GREEN}✓ Распаковка SQL.gz файлов завершен успешно${NC}" | tee -a /application/cache/sql_status
 else
     echo -e "${YELLOW}⚠ Файлы .gz не найдены, пропускаем распаковку${NC}" | tee -a /application/cache/sql_status
+fi
+
+# Проверка наличия SQL файлов перед импортом
+echo ""
+echo -e "${YELLOW}Проверка наличия SQL файлов...${NC}"
+MISSING_FILES=0
+for sql_file in $SQL_FILES; do
+    if [ ! -f "/application/sql/$sql_file" ]; then
+        echo -e "${YELLOW}⚠ Файл не найден: $sql_file${NC}"
+        MISSING_FILES=$((MISSING_FILES + 1))
+    fi
+done
+
+if [ $MISSING_FILES -eq $(echo $SQL_FILES | wc -w) ]; then
+    echo -e "${RED}✗ КРИТИЧЕСКАЯ ОШИБКА: Не найдено ни одного SQL файла!${NC}" | tee -a /application/cache/sql_status
+    echo "Проверьте, что SQL файлы находятся в директории /application/sql/" | tee -a /application/cache/sql_status
+    echo "=== Импорт завершен с ошибками (файлы не найдены) ===" >> /application/cache/sql_status
+    exit 1
+elif [ $MISSING_FILES -gt 0 ]; then
+    echo -e "${YELLOW}⚠ Предупреждение: Не найдено $MISSING_FILES файлов из списка${NC}"
+    echo -e "${YELLOW}Импорт продолжится с доступными файлами${NC}"
 fi
 
 # Импорт каждого SQL файла
@@ -95,9 +135,9 @@ for sql_file in $SQL_FILES; do
     if [ -f "/application/sql/$sql_file" ]; then
         safe_execute "Импорт $sql_file" "/application/tools/app_topg $sql_file" 0
     else
-        echo -e "${RED}✗ Файл не найден: $sql_file${NC}" | tee -a /application/cache/sql_status
+        echo -e "${YELLOW}⚠ Файл пропущен (не найден): $sql_file${NC}" | tee -a /application/cache/sql_status
         FAILED_FILES="$FAILED_FILES$sql_file (файл не найден)\n"
-        ERROR_COUNT=$((ERROR_COUNT + 1))
+        # Не считаем отсутствие файла критической ошибкой
     fi
 done
 
