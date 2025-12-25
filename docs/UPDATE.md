@@ -72,7 +72,9 @@ docker-compose up -d
 # Веб-интерфейс для инициализации БД: http://localhost:$(grep FLIBUSTA_PORT .env | cut -d= -f2)
 ```
 
-### Метод 2: Использование git pull
+### Метод 2: Использование скрипта обновления (рекомендуется для production)
+
+Скрипт `update_project.sh` автоматически сбрасывает все локальные изменения и обновляет проект до последней версии из репозитория:
 
 ```bash
 # Остановка контейнеров
@@ -81,9 +83,9 @@ docker-compose down
 # Переход в директорию проекта
 cd flibusta_test
 
-# Обновление из репозитория
-git fetch origin
-git pull origin main
+# Обновление проекта (автоматически перезаписывает локальные изменения)
+chmod +x update_project.sh
+./update_project.sh
 
 # Обновление Docker образов
 docker-compose pull
@@ -91,6 +93,47 @@ docker-compose build --no-cache
 
 # Запуск контейнеров
 docker-compose up -d
+```
+
+**Важно:** Скрипт автоматически сохраняет и восстанавливает `.env` и `secrets/`, чтобы не потерять конфигурацию.
+
+### Метод 3: Ручное обновление с git pull
+
+```bash
+# Остановка контейнеров
+docker-compose down
+
+# Переход в директорию проекта
+cd flibusta_test
+
+# Сброс локальных изменений и обновление
+git fetch origin
+git reset --hard origin/main
+
+# Обновление Docker образов
+docker-compose pull
+docker-compose build --no-cache
+
+# Запуск контейнеров
+docker-compose up -d
+```
+
+### Настройка автоматического сброса локальных изменений
+
+Для production-серверов, где локальные изменения не должны сохраняться, можно настроить git:
+
+```bash
+# Настройка git для автоматического сброса при pull (опционально)
+git config pull.rebase false
+git config pull.ff only
+
+# Или создать алиас для безопасного обновления
+git config alias.update '!git fetch origin && git reset --hard origin/$(git branch --show-current)'
+```
+
+После этого можно использовать:
+```bash
+git update  # Вместо git pull
 ```
 
 ## Обновление базы данных
