@@ -331,29 +331,27 @@ for sql_file in $SQL_FILES; do
         export PGPASSWORD="$PGPASSWORD"
         error_output=$(mktemp /tmp/psql_error_XXXXXX 2>/dev/null || echo "/tmp/psql_error_$$")
         
+        psql_success=0
         if [ $INSIDE_CONTAINER -eq 1 ]; then
             if psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "/application/sql/$sql_file" > "$error_output" 2>&1; then
-                log_success "Импорт $sql_file завершен (через psql)"
-                IMPORTED_FILES=$((IMPORTED_FILES + 1))
-                import_success=1
-                rm -f "$error_output"
-            else
-                error_details=$(cat "$error_output" 2>/dev/null || echo "Не удалось прочитать детали ошибки")
-                log_error "Ошибка импорта $sql_file (через psql)" "$error_details"
-                FAILED_FILES="$FAILED_FILES$sql_file "
-                rm -f "$error_output"
+                psql_success=1
             fi
-        elif $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f "/application/sql/$sql_file" > "$error_output" 2>&1; then
-                log_success "Импорт $sql_file завершен (через psql)"
-                IMPORTED_FILES=$((IMPORTED_FILES + 1))
-                import_success=1
-                rm -f "$error_output"
-            else
-                error_details=$(cat "$error_output" 2>/dev/null || echo "Не удалось прочитать детали ошибки")
-                log_error "Ошибка импорта $sql_file (через psql)" "$error_details"
-                FAILED_FILES="$FAILED_FILES$sql_file "
-                rm -f "$error_output"
+        else
+            if $COMPOSE_CMD exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f "/application/sql/$sql_file" > "$error_output" 2>&1; then
+                psql_success=1
             fi
+        fi
+        
+        if [ $psql_success -eq 1 ]; then
+            log_success "Импорт $sql_file завершен (через psql)"
+            IMPORTED_FILES=$((IMPORTED_FILES + 1))
+            import_success=1
+            rm -f "$error_output"
+        else
+            error_details=$(cat "$error_output" 2>/dev/null || echo "Не удалось прочитать детали ошибки")
+            log_error "Ошибка импорта $sql_file (через psql)" "$error_details"
+            FAILED_FILES="$FAILED_FILES$sql_file "
+            rm -f "$error_output"
         fi
     fi
 done

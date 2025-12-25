@@ -1,0 +1,10 @@
+---
+name: flib2
+description: This is a new rule
+---
+
+# Overview
+
+Проект для linux (debian, ubuntu, centos, etc.)
+Он запускается на другом сервере по debian.
+Не запускай команды докера на этой машине, так как проект в другом месте.
