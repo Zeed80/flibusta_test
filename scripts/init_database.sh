@@ -111,17 +111,82 @@ i=1
 postgres_ready=0
 max_attempts=60
 
+# Сохраняем основной пароль для последующего сравнения
+MAIN_PASSWORD="$PGPASSWORD"
+
+# Подготовка списка паролей для попыток подключения
+# При первом запуске postgres может быть создан с паролем из POSTGRES_PASSWORD
+# который берется из FLIBUSTA_DBPASSWORD или дефолтного 'flibusta'
+PASSWORDS_TO_TRY=("$PGPASSWORD" "${FLIBUSTA_DBPASSWORD:-flibusta}" "flibusta")
+
+# Убираем дубликаты
+UNIQUE_PASSWORDS=""
+for pwd in "${PASSWORDS_TO_TRY[@]}"; do
+    if [ -n "$pwd" ]; then
+        found=0
+        for existing in $UNIQUE_PASSWORDS; do
+            if [ "$existing" = "$pwd" ]; then
+                found=1
+                break
+            fi
+        done
+        if [ $found -eq 0 ]; then
+            if [ -z "$UNIQUE_PASSWORDS" ]; then
+                UNIQUE_PASSWORDS="$pwd"
+            else
+                UNIQUE_PASSWORDS="$UNIQUE_PASSWORDS $pwd"
+            fi
+        fi
+    fi
+done
+
 while [ $i -le $max_attempts ]; do
     # Сначала проверяем доступность сервера
     if $COMPOSE_CMD exec -T postgres pg_isready -U "$FLIBUSTA_DBUSER" -d "$FLIBUSTA_DBNAME" > /dev/null 2>&1; then
-        # Затем проверяем реальное подключение с паролем
-        export PGPASSWORD="$PGPASSWORD"
-        if $COMPOSE_CMD exec -T postgres psql -U "$FLIBUSTA_DBUSER" -d "$FLIBUSTA_DBNAME" -c "SELECT 1;" > /dev/null 2>&1; then
+        # Пробуем подключиться с разными паролями
+        connected=0
+        working_password=""
+        
+        for test_password in $UNIQUE_PASSWORDS; do
+            export PGPASSWORD="$test_password"
+            if $COMPOSE_CMD exec -T postgres psql -U "$FLIBUSTA_DBUSER" -d "$FLIBUSTA_DBNAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                connected=1
+                working_password="$test_password"
+                # Обновляем PGPASSWORD на рабочий пароль
+                export PGPASSWORD="$working_password"
+                break
+            fi
+        done
+        
+        if [ $connected -eq 1 ]; then
             postgres_ready=1
             log_success "PostgreSQL готов и доступен"
+            
+            # Если рабочий пароль отличается от основного, обновляем его в БД
+            if [ "$working_password" != "$MAIN_PASSWORD" ] && [ -n "$MAIN_PASSWORD" ] && [ "$MAIN_PASSWORD" != "flibusta" ]; then
+                log_info "Пароль в БД отличается от пароля в secrets, обновляем..."
+                escaped_password=$(echo "$MAIN_PASSWORD" | sed "s/'/''/g")
+                if $COMPOSE_CMD exec -T postgres psql -U "$FLIBUSTA_DBUSER" -d "postgres" -c "ALTER USER $FLIBUSTA_DBUSER WITH PASSWORD '$escaped_password';" > /dev/null 2>&1; then
+                    log_success "Пароль в БД обновлен"
+                    # Проверяем новое подключение
+                    sleep 1
+                    export PGPASSWORD="$MAIN_PASSWORD"
+                    if $COMPOSE_CMD exec -T postgres psql -U "$FLIBUSTA_DBUSER" -d "$FLIBUSTA_DBNAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                        log_success "Подключение с обновленным паролем успешно"
+                    else
+                        log_warning "Пароль обновлен, но подключение с новым паролем не работает, используем рабочий пароль"
+                        export PGPASSWORD="$working_password"
+                    fi
+                else
+                    log_warning "Не удалось обновить пароль в БД, продолжаем с текущим паролем"
+                fi
+            fi
+            
             break
         else
-            log_warning "PostgreSQL доступен, но подключение с паролем не удалось (попытка $i/$max_attempts)"
+            if [ $((i % 10)) -eq 0 ]; then
+                log_warning "PostgreSQL доступен, но подключение не удалось ни с одним из паролей (попытка $i/$max_attempts)"
+            fi
         fi
     else
         if [ $((i % 10)) -eq 0 ]; then
@@ -133,8 +198,9 @@ while [ $i -le $max_attempts ]; do
         log_error "PostgreSQL не готов после $max_attempts попыток"
         log_error "Проверьте:"
         log_error "  1. Контейнер postgres запущен: $COMPOSE_CMD ps"
-        log_error "  2. Пароль БД правильный: проверьте secrets/flibusta_pwd.txt"
+        log_error "  2. Пароль БД правильный: проверьте secrets/flibusta_pwd.txt и .env (FLIBUSTA_DBPASSWORD)"
         log_error "  3. Логи контейнера: $COMPOSE_CMD logs postgres"
+        log_error "  4. Попробуйте выполнить: bash scripts/fix_db_password.sh"
         exit 1
     fi
     sleep 2
