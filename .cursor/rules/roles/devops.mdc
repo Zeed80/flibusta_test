@@ -31,19 +31,22 @@ alwaysApply: false
 ## Инструменты
 - MCP Context7 для документации Docker/Nginx
 - Web search для актуальных best practices
-- `run_terminal_cmd` для выполнения команд (на сервере!)
+- **НЕ использовать `run_terminal_cmd`** - вместо этого предлагать команды для выполнения пользователем
+- Предлагать команды в виде скриптов или списков с объяснениями
 
 ## Правила работы
-1. Не запускать Docker локально (проект на другом сервере)
-2. Использовать healthchecks для контейнеров
-3. Настроить логирование в stdout (docker logs)
-4. Использовать environment variables для конфигурации
-5. Резервные копии ежедневно (pg_dump)
-6. Обновлять образы регулярно (docker-compose pull)
-7. Мониторить ресурсы (CPU, RAM, disk)
-8. Использовать non-root users в контейнерах
-9. Настраивать rate-limiting для API
-10. Документировать все команды в README
+1. **КРИТИЧЕСКИ ВАЖНО**: Проект развернут на отдельном Linux сервере, НЕ локально
+2. **Никогда не выполнять команды без разрешения пользователя** - всегда спрашивать!
+3. Не запускать Docker локально - проект на другом сервере
+4. Использовать healthchecks для контейнеров
+5. Настроить логирование в stdout (docker logs)
+6. Использовать environment variables для конфигурации
+7. Резервные копии ежедневно (pg_dump)
+8. Обновлять образы регулярно (docker-compose pull)
+9. Мониторить ресурсы (CPU, RAM, disk)
+10. Использовать non-root users в контейнерах
+11. Настраивать rate-limiting для API
+12. Документировать все команды в README
 
 ## Примеры задач
 - Настроить автоматический SSL через Let's Encrypt
@@ -156,3 +159,138 @@ docker-compose up  # НЕ ДЕЛАТЬ!
 # ХОРОШО - через SSH на сервере
 ssh user@server "cd /path/to/flibusta && docker-compose up -d"
 ```
+
+### Категории команд по уровню опасности
+
+**БЕЗОПАСНЫЕ** (можно предложить без разрешения - только чтение):
+```bash
+# Просмотр логов (read-only операции)
+docker logs -f php-fpm
+docker-compose logs
+tail -f /var/log/nginx/access.log
+
+# Проверка статуса (read-only операции)
+docker ps
+docker stats
+systemctl status nginx
+systemctl status postgresql
+
+# Мониторинг (read-only операции)
+htop
+df -h
+free -m
+netstat -tulpn
+```
+
+**ОПАСНЫЕ** (обязательно спрашивать разрешение):
+```bash
+# Управление сервисами
+docker-compose restart
+docker-compose up -d
+docker-compose down
+docker-compose pull
+systemctl restart nginx
+
+# Обновление
+docker pull postgres:14
+docker-compose pull
+docker image prune -a
+
+# Бэкапы и восстановление
+pg_dump -h postgres -U flibusta flibusta > backup.sql
+pg_restore -h postgres -U flibusta -d flibusta < backup.sql
+
+# Изменение конфигураций
+echo "NEW_VALUE" > .env
+nano docker-compose.yml
+systemctl reload nginx
+
+# Создание/удаление файлов и директорий
+touch new_file.txt
+rm -rf /path/to/file
+mkdir /path/to/dir
+```
+
+**КРИТИЧЕСКИЕ** (обязательно объяснять и спрашивать разрешение):
+```bash
+# Удаление данных
+rm -rf /var/backups/old
+docker volume rm flibusta_postgres_data
+DROP TABLE books;
+TRUNCATE TABLE authors;
+DELETE FROM books WHERE id = 1;
+
+# Изменение структуры базы
+ALTER TABLE books ADD COLUMN new_column TEXT;
+DROP DATABASE flibusta_old;
+CREATE INDEX idx_title ON books(title);
+
+# Изменение прав доступа
+chmod 755 /var/www/flibusta
+chmod -R 644 /var/www/html
+chown -R www-data:www-data /var/www/flibusta
+chgrp -R www-data /var/www/flibusta
+
+# Настройка firewall
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+ufw allow 80/tcp
+ufw allow 443/tcp
+firewall-cmd --permanent --add-port=80/tcp
+
+# Остановка/удаление сервисов
+systemctl stop nginx
+systemctl disable postgresql
+apt-get remove nginx
+docker-compose down -v
+
+# Миграция базы данных
+psql -h postgres -U flibusta -f migration.sql
+```
+
+### Формат предложений для DevOps задач
+
+**ПЛОХО:**
+```
+Сейчас перезапущу сервисы на сервере.
+docker-compose restart
+```
+
+**ХОРОШО:**
+```
+Для решения проблемы предлагаю перезапустить контейнеры.
+
+**Команды для выполнения:**
+```bash
+# Подключение к серверу через SSH
+ssh user@your-server.com
+
+# Переход в директорию проекта
+cd /path/to/flibusta
+
+# Перезапуск контейнеров
+docker-compose restart
+```
+
+**Риски и предупреждения:**
+- ⚠️ Сервис будет недоступен примерно 30 секунд
+- ⚠️ Все незавершенные запросы будут прерваны
+- ⚠️ Рекомендуется выполнить в часы минимальной нагрузки (ночь)
+
+**Необходимое действие:**
+Пожалуйста, подтвердите, что вы хотите выполнить эти команды на сервере.
+
+1. ✅ Выполнить сейчас (я подтверждаю, что понимаю риски)
+2. ⏳ Отложить выполнение на позже
+3. ❌ Отменить выполнение
+```
+
+### Рекомендованный рабочий процесс
+
+1. **Анализ задачи** - понять, что нужно сделать
+2. **Классификация** - определить уровень опасности команд (безопасно/опасно/критически)
+3. **Подготовка команд** - собрать команды в список/скрипт с объяснениями
+4. **Объяснение** - описать каждую команду и её назначение
+5. **Оценка рисков** - указать возможные проблемы
+6. **Предложение пользователю** - представить команды с разрешением
+7. **Ожидание подтверждения** - НЕ выполнять автоматически!
+8. **Помощь в выполнении** - если пользователь подтвердит, помочь с выполнением

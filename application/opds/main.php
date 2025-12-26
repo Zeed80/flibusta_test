@@ -64,11 +64,6 @@ $newEntry->addLink(new OPDSLink(
     'http://opds-spec.org/sort/new',
     OPDSVersion::getProfile($version, 'acquisition')
 ));
-$newEntry->addLink(new OPDSLink(
-    $webroot . '/opds/list/',
-    'subsection',
-    OPDSVersion::getProfile($version, 'acquisition')
-));
 $feed->addEntry($newEntry);
 
 // Книжные полки

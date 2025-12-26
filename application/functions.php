@@ -563,8 +563,45 @@ function formatSizeUnits($bytes)
             $bytes = '0 bytes';
         }
 
-        return $bytes;
-    }
+	return $bytes;
+}
+
+/**
+ * Создает OPDSEntry с acquisition ссылками для OPDS
+ * 
+ * @param string $id ID записи
+ * @param string $title Название
+ * @param string $updated Дата обновления
+ * @param string $content Контент (описание)
+ * @param string $href URL ресурса
+ * @param string $version Версия OPDS ('1.0' или '1.2')
+ * @param string $rel Rel тип (по умолчанию 'subsection' для навигации)
+ * @param string $contentType MIME тип
+ * @param string $linkTitle Заголовок ссылки
+ * @return OPDSEntry
+ */
+function opds_acquisition_entry($id, $title, $updated, $content, $href, $version = '1.2', $rel = 'subsection', $contentType = null, $linkTitle = '') {
+	global $webroot;
+	
+	$entry = new OPDSEntry();
+	$entry->setId($id);
+	$entry->setTitle($title);
+	$entry->setUpdated($updated);
+	
+	if ($content) {
+		$entry->setContent($content, 'text');
+	}
+	
+	$profile = OPDSVersion::getProfile($version, 'acquisition');
+	$entry->addLink(new OPDSLink(
+		$href,
+		$rel,
+		$profile,
+		$linkTitle
+	));
+	
+	return $entry;
+}
 
 /**
  * Создает OPDSEntry объект для книги

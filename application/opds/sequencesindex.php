@@ -97,9 +97,9 @@ while ($ach = $ai->fetchObject()) {
 	} else {
 		// list individual serie
 		$sq = $dbh->prepare("SELECT SeqName, SeqId 
-			from libseqname 
-			where UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) = :pattern
-			ORDER BY UPPER(SeqName)");
+				from libseqname 
+				where UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) = :pattern
+				ORDER BY UPPER(SeqName)");
 		$sq->bindParam(":pattern", $ach->alpha);
 		$sq->execute();
 		while($s = $sq->fetchObject()){
@@ -113,7 +113,7 @@ while ($ach = $ai->fetchObject()) {
 			$entry->setContent('', 'text');
 			$entry->addLink(new OPDSLink(
 				$webroot . '/opds/list?seq_id=' . (int)$s->seqid,
-				'subsection',
+				'http://opds-spec.org/acquisition',
 				OPDSVersion::getProfile($version, 'acquisition')
 			));
 			$feed->addEntry($entry);

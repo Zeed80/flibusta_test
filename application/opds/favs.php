@@ -59,7 +59,7 @@ while ($fav = $favs->fetch()) {
 	$entry->setContent("Избранные книги пользователя", 'text');
 	$entry->addLink(new OPDSLink(
 		$webroot . '/opds/fav?uuid=' . urlencode($fav->user_uuid),
-		'subsection',
+		'http://opds-spec.org/acquisition',
 		OPDSVersion::getProfile($version, 'acquisition')
 	));
 	$feed->addEntry($entry);

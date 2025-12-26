@@ -1,8 +1,3 @@
----
-name: flib2
-description: This is a new rule
----
-
 # Overview
 
 Проект для linux (debian, ubuntu, centos, etc.)

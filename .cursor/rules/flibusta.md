@@ -1,8 +1,3 @@
----
-name: flibusta
-description: This is a new rule
----
-
 # Overview
 
 Use MCP context7
