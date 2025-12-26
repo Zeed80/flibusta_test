@@ -37,7 +37,7 @@ $opdsCache = OPDSCache::getInstance();
 
 // Создаем ключ кэша для главной страницы
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_main_v2_' . OPDSVersion::detect();
+$cacheKey = 'opds_main_v3_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);

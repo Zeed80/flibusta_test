@@ -1,4 +1,11 @@
 <?php
+declare(strict_types=1);
+
+// Инвалидируем opcache для этого файла (на случай если изменения не применились)
+if (function_exists('opcache_invalidate')) {
+    opcache_invalidate(__FILE__, true);
+}
+
 /**
  * Класс для создания записей в OPDS фидах
  * Поддерживает OPDS 1.0 и 1.2
@@ -30,7 +37,9 @@ class OPDSEntry {
     }
     
     public function setTitle($title) {
-        $this->title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($title) : $title;
+        // Не нормализуем title для entry, чтобы сохранить оригинальный текст (включая кириллицу)
+        // normalize_text_for_opds может удалить кириллицу
+        $this->title = $title;
         return $this;
     }
     
