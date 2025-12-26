@@ -21,15 +21,37 @@ require_once(ROOT_PATH . 'opds/core/autoload.php');
 
 // Базовый URL OPDS (используем переменную $webroot из init.php или дефолт)
 global $webroot;
-if (php_sapi_name() === 'cli') {
-    // CLI режим - используем localhost
-    $baseUrl = 'http://localhost:27100' . ($webroot ?: '') . '/opds';
-} else {
-    // Веб режим - используем текущий хост
-    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:27100';
-    $baseUrl = $protocol . '://' . $host . ($webroot ?: '') . '/opds';
+
+/**
+ * Определяет правильный базовый URL для тестов
+ * Внутри Docker-сети используем имя сервиса webserver:80
+ * Снаружи используем localhost:27100
+ */
+function getBaseUrl() {
+    global $webroot;
+    
+    if (php_sapi_name() === 'cli') {
+        // CLI режим - проверяем, запущены ли мы внутри Docker
+        // Пытаемся определить доступность webserver (имя сервиса в docker-compose)
+        $webserverIp = @gethostbyname('webserver');
+        
+        // Если webserver разрешается (не возвращает сам себя), значит мы в Docker-сети
+        if ($webserverIp !== 'webserver' && filter_var($webserverIp, FILTER_VALIDATE_IP)) {
+            // Внутри Docker - используем имя сервиса и порт 80
+            return 'http://webserver' . ($webroot ?: '') . '/opds';
+        } else {
+            // Снаружи Docker - используем localhost и внешний порт
+            return 'http://localhost:27100' . ($webroot ?: '') . '/opds';
+        }
+    } else {
+        // Веб режим - используем текущий хост
+        $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost:27100';
+        return $protocol . '://' . $host . ($webroot ?: '') . '/opds';
+    }
 }
+
+$baseUrl = getBaseUrl();
 $tests = [];
 $results = [];
 
@@ -111,24 +133,30 @@ function httpGet($url, $testName) {
     
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10); // Уменьшаем таймаут для быстрой диагностики
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // Таймаут подключения
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'User-Agent: FBReader/2.0.3'
     ]);
+    curl_setopt($ch, CURLOPT_VERBOSE, false); // Отключаем verbose для чистоты вывода
     
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
     $curlError = curl_error($ch);
+    $curlErrno = curl_errno($ch);
     curl_close($ch);
     
-    if ($curlError) {
+    if ($curlError || $curlErrno !== 0) {
+        $errorMsg = $curlError ?: "CURL error code: $curlErrno";
+        // Добавляем информацию о URL для диагностики
+        $errorMsg .= " (URL: $url)";
         return [
             'code' => 0,
             'content' => '',
             'content_type' => '',
-            'error' => $curlError
+            'error' => $errorMsg
         ];
     }
     
@@ -664,6 +692,17 @@ function runAllTests() {
     echo "╚════════════════════════════════════════╝\n";
     echo "Базовый URL: $baseUrl\n";
     echo "Запуск: " . date('Y-m-d H:i:s') . "\n";
+    
+    // Диагностика окружения
+    if (php_sapi_name() === 'cli') {
+        $webserverIp = @gethostbyname('webserver');
+        if ($webserverIp !== 'webserver' && filter_var($webserverIp, FILTER_VALIDATE_IP)) {
+            echo "Окружение: Docker-контейнер (webserver доступен по IP: $webserverIp)\n";
+        } else {
+            echo "Окружение: Внешний запуск (webserver недоступен)\n";
+        }
+    }
+    echo "\n";
     
     try {
         // Основные endpoint-ы
