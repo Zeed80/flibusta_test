@@ -2,21 +2,37 @@
 /**
  * Улучшенный класс для кэширования OPDS фидов с поддержкой инвалидации
  * и интеграцией с обновлением базы данных
+ * Использует singleton паттерн для предотвращения ошибок с глобальной областью видимости
  */
 class OPDSCache {
+    private static $instance = null;
     protected $cacheDir;
     protected $ttl;
     protected $enabled;
+    protected $dbName = 'flibusta';
     
-    public function __construct($cacheDir = null, $ttl = 3600, $enabled = true) {
-        $this->cacheDir = $cacheDir ?: ROOT_PATH . 'cache/opds/';
-        $this->ttl = $ttl;
-        $this->enabled = $enabled;
-        
-        if ($this->enabled && !is_dir($this->cacheDir)) {
-            mkdir($this->cacheDir, 0755, true);
+    // Singleton паттерн - запрещаем прямое создание экземпляров
+    private function __construct($cacheDir = null, $ttl = 3600, $enabled = true) {
+        if (self::$instance !== null) {
+            self::$instance = new self($cacheDir, $ttl, $enabled);
         }
     }
+    
+    /**
+     * Получает единственный экземпляр класса (Singleton)
+     * 
+     * @return OPDSCache Единственный экземпляр
+     */
+    public static function getInstance($cacheDir = null, $ttl = 3600, $enabled = true) {
+        if (self::$instance === null) {
+            self::$instance = new self($cacheDir, $ttl, $enabled);
+        }
+        return self::$instance;
+    }
+    
+    /**
+     * Конструктор (приватный для singleton)
+     */
     
     /**
      * Проверяет, включено ли кэширование

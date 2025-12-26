@@ -1,8 +1,8 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
 
-// Инициализируем кэш OPDS
-$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
+// Инициализируем кэш OPDS (используем singleton паттерн)
+$opdsCache = OPDSCache::getInstance();
 
 // Создаем ключ кэша для страницы избранных пользователей
 $cacheKey = 'opds_favs_' . OPDSVersion::detect();

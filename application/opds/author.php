@@ -1,6 +1,6 @@
 <?php
-// Инициализируем кэш OPDS
-$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
+// Инициализируем кэш OPDS (используем singleton паттерн)
+$opdsCache = OPDSCache::getInstance();
 
 $author_id = isset($_GET['author_id']) ? (int)$_GET['author_id'] : 0;
 if ($author_id == 0) {

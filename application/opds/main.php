@@ -1,6 +1,6 @@
 <?php
-// Инициализируем кэш OPDS
-$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
+// Инициализируем кэш OPDS (используем singleton паттерн)
+$opdsCache = OPDSCache::getInstance();
 
 // Создаем ключ кэша для главной страницы
 $cacheKey = 'opds_main_' . OPDSVersion::detect();
