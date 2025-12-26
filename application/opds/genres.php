@@ -64,7 +64,7 @@ while ($g = $gs->fetch()) {
 	$entry->setContent('', 'text');
 	$entry->addLink(new OPDSLink(
 		$webroot . '/opds/listgenres/?id=' . urlencode($g->genre),
-		'subsection',
+		'http://opds-spec.org/acquisition',
 		OPDSVersion::getProfile($version, 'acquisition')
 	));
 	$feed->addEntry($entry);

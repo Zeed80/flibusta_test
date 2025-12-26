@@ -82,11 +82,15 @@ if (isset($_GET['genre_id'])) {
 	$orderby = ' time DESC ';
 	$params['genre_id'] = $gid;
 	$stmt = $dbh->prepare("SELECT * FROM libgenrelist WHERE genreid=:gid");
-	$stmt->bindParam(":gid", $gid);
+	$stmt->bindParam(":gid", $gid, PDO::PARAM_INT);
 	$stmt->execute();
-	$g = $stmt->fetch();
-	$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc) : $g->genredesc;
-	$title = "в жанре $g->genremeta: $normalizedGenreDesc";
+	$g = $stmt->fetch(PDO::FETCH_OBJ);
+	if ($g) {
+		$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc ?? '') : ($g->genredesc ?? '');
+		$title = "в жанре " . ($g->genremeta ?? '') . ": $normalizedGenreDesc";
+	} else {
+		$title = "в жанре (не найден)";
+	}
 }
 
 if (isset($_GET['seq_id'])) {
@@ -96,11 +100,15 @@ if (isset($_GET['seq_id'])) {
 	$orderby = " s.seqnumb ";
 	$params['seq_id'] = $sid;
 	$stmt = $dbh->prepare("SELECT * FROM libseqname WHERE seqid=:sid");
-	$stmt->bindParam(":sid", $sid);
+	$stmt->bindParam(":sid", $sid, PDO::PARAM_INT);
 	$stmt->execute();
-	$s = $stmt->fetch();
-	$normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
-	$title = "в сборнике $normalizedSeqName";
+	$s = $stmt->fetch(PDO::FETCH_OBJ);
+	if ($s) {
+		$normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname ?? '') : ($s->seqname ?? '');
+		$title = "в сборнике $normalizedSeqName";
+	} else {
+		$title = "в сборнике (не найден)";
+	}
 }
 
 if (isset($_GET['author_id'])) {
@@ -125,12 +133,16 @@ if (isset($_GET['author_id'])) {
 		$orderby = ' time DESC ';
 	}
 	$stmt = $dbh->prepare("SELECT * FROM libavtorname WHERE avtorid=:aid");
-	$stmt->bindParam(":aid", $aid);
+	$stmt->bindParam(":aid", $aid, PDO::PARAM_INT);
 	$stmt->execute();
-	$a = $stmt->fetch();
-	$authorName = ($a->nickname != '')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
-		:"$a->firstname  $a->middlename $a->lastname";
-	$title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
+	$a = $stmt->fetch(PDO::FETCH_OBJ);
+	if ($a) {
+		$authorName = (!empty($a->nickname)) ? "$a->firstname $a->middlename $a->lastname ($a->nickname)"
+			: "$a->firstname  $a->middlename $a->lastname";
+		$title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
+	} else {
+		$title = "автора (не найден)";
+	}
 }
 
 // Подсчет общего количества записей
