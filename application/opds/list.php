@@ -1,5 +1,31 @@
 <?php
+declare(strict_types=1);
+
+// Включаем обработку ошибок
+error_reporting(E_ALL);
+ini_set('display_errors', '0'); // Не показываем ошибки пользователю, только логируем
+ini_set('log_errors', '1');
+
 header('Content-Type: application/atom+xml; charset=utf-8');
+
+// Проверяем наличие необходимых глобальных переменных
+if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
+    http_response_code(500);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:internal</id>
+  <title>Внутренняя ошибка сервера</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:init</id>
+    <title>Ошибка инициализации</title>
+    <summary type="text">Не удалось инициализировать необходимые переменные</summary>
+  </entry>
+</feed>';
+    error_log("OPDS list.php: Missing required global variables (dbh, webroot, or cdt)");
+    exit;
+}
 
 // Инициализируем кэш OPDS (используем singleton паттерн)
 $opdsCache = OPDSCache::getInstance();
@@ -108,20 +134,39 @@ if (isset($_GET['author_id'])) {
 }
 
 // Подсчет общего количества записей
-$countQuery = "SELECT COUNT(DISTINCT b.BookId) as cnt FROM libbook b $join WHERE $filter";
-$countStmt = $dbh->prepare($countQuery);
-if (isset($gid)) {
-	$countStmt->bindParam(":gid", $gid);
+try {
+	$countQuery = "SELECT COUNT(DISTINCT b.BookId) as cnt FROM libbook b $join WHERE $filter";
+	$countStmt = $dbh->prepare($countQuery);
+	if (isset($gid)) {
+		$countStmt->bindParam(":gid", $gid, PDO::PARAM_INT);
+	}
+	if (isset($sid)) {
+		$countStmt->bindParam(":sid", $sid, PDO::PARAM_INT);
+	}
+	if (isset($aid)) {
+		$countStmt->bindParam(":aid", $aid, PDO::PARAM_INT);
+	}
+	$countStmt->execute();
+	$countResult = $countStmt->fetch(PDO::FETCH_OBJ);
+	$totalItems = $countResult ? (int)$countResult->cnt : 0;
+	$totalPages = max(1, ceil($totalItems / $itemsPerPage));
+} catch (PDOException $e) {
+	error_log("OPDS list.php: SQL error in count query: " . $e->getMessage());
+	http_response_code(500);
+	header('Content-Type: application/atom+xml; charset=utf-8');
+	echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:sql</id>
+  <title>Ошибка базы данных</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:count</id>
+    <title>Ошибка подсчета записей</title>
+    <summary type="text">Не удалось выполнить запрос к базе данных</summary>
+  </entry>
+</feed>';
+	exit;
 }
-if (isset($sid)) {
-	$countStmt->bindParam(":sid", $sid);
-}
-if (isset($aid)) {
-	$countStmt->bindParam(":aid", $aid);
-}
-$countStmt->execute();
-$totalItems = (int)$countStmt->fetch()->cnt;
-$totalPages = max(1, ceil($totalItems / $itemsPerPage));
 
 // Настройка фида
 $feed->setId('tag:root:home');
@@ -197,30 +242,50 @@ if ($version === OPDSVersion::VERSION_1_2) {
 }
 
 // Получаем книги
-$books = $dbh->prepare("SELECT b.*
-	FROM libbook b
-	$join
-	WHERE
-		$filter
-	ORDER BY $orderby
-	LIMIT :limit OFFSET :offset");
+try {
+	$books = $dbh->prepare("SELECT b.*
+		FROM libbook b
+		$join
+		WHERE
+			$filter
+		ORDER BY $orderby
+		LIMIT :limit OFFSET :offset");
 
-if (isset($gid)) {
-	$books->bindParam(":gid", $gid);
-}
-if (isset($sid)) {
-	$books->bindParam(":sid", $sid);
-}
-if (isset($aid)) {
-	$books->bindParam(":aid", $aid);
-}
-$books->bindValue(":limit", $itemsPerPage, PDO::PARAM_INT);
-$books->bindValue(":offset", $offset, PDO::PARAM_INT);
-$books->execute();
+	if (isset($gid)) {
+		$books->bindParam(":gid", $gid, PDO::PARAM_INT);
+	}
+	if (isset($sid)) {
+		$books->bindParam(":sid", $sid, PDO::PARAM_INT);
+	}
+	if (isset($aid)) {
+		$books->bindParam(":aid", $aid, PDO::PARAM_INT);
+	}
+	$books->bindValue(":limit", $itemsPerPage, PDO::PARAM_INT);
+	$books->bindValue(":offset", $offset, PDO::PARAM_INT);
+	$books->execute();
 
-while ($b = $books->fetch()) {
-	$entry = opds_book_entry($b, $webroot, $version);
-	$feed->addEntry($entry);
+	while ($b = $books->fetch(PDO::FETCH_OBJ)) {
+		$entry = opds_book_entry($b, $webroot, $version);
+		if ($entry) {
+			$feed->addEntry($entry);
+		}
+	}
+} catch (PDOException $e) {
+	error_log("OPDS list.php: SQL error in books query: " . $e->getMessage());
+	http_response_code(500);
+	header('Content-Type: application/atom+xml; charset=utf-8');
+	echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:sql</id>
+  <title>Ошибка базы данных</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:books</id>
+    <title>Ошибка получения книг</title>
+    <summary type="text">Не удалось выполнить запрос к базе данных</summary>
+  </entry>
+</feed>';
+	exit;
 }
 
 // Рендерим фид

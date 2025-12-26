@@ -99,17 +99,29 @@ function validateXml($xml, $testName) {
         return false;
     }
     
-    // Проверяем namespace
+    // Проверяем namespace - ищем в атрибутах xmlns и в содержимом XML
     $namespaces = $doc->getNamespaces(true);
     $hasOpdsNamespace = false;
     foreach ($namespaces as $ns => $uri) {
-        if (strpos($uri, 'opds-spec.org') !== false || strpos($uri, 'opds.io') !== false) {
+        if (strpos($uri, 'opds-spec.org') !== false || strpos($uri, 'opds.io') !== false || strpos($uri, 'specs.opds.io') !== false) {
             $hasOpdsNamespace = true;
             break;
         }
     }
     
-    if (!$hasOpdsNamespace && strpos($testName, 'main') === false) {
+    // Также проверяем в исходном XML (на случай, если namespace в атрибутах feed)
+    if (!$hasOpdsNamespace) {
+        if (preg_match('/xmlns:opds=["\']([^"\']+)["\']/', $xml, $matches)) {
+            $opdsNs = $matches[1];
+            if (strpos($opdsNs, 'opds-spec.org') !== false || strpos($opdsNs, 'opds.io') !== false || strpos($opdsNs, 'specs.opds.io') !== false) {
+                $hasOpdsNamespace = true;
+            }
+        }
+    }
+    
+    // Для главной страницы namespace может отсутствовать (это navigation feed)
+    // Но для остальных страниц он обязателен
+    if (!$hasOpdsNamespace && strpos($testName, 'main') === false && strpos($testName, 'Главная') === false) {
         testResult($testName, false, "Отсутствует OPDS namespace");
         libxml_clear_errors();
         return false;
