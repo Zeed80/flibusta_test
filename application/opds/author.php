@@ -163,19 +163,19 @@ if ($a = $stmt->fetchObject()){
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
-                'http://www.feedbooks.com/opds/facet',
+                'subsection',
                 OPDSVersion::getProfile($version, 'acquisition'),
                 'Книги автора по алфавиту'
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
-                'http://www.feedbooks.com/opds/facet',
+                'subsection',
                 OPDSVersion::getProfile($version, 'acquisition'),
                 'Книжные серии с произведениями автора'
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
-                'http://www.feedbooks.com/opds/facet',
+                'subsection',
                 OPDSVersion::getProfile($version, 'acquisition'),
                 'Книги автора вне серий'
             ));
