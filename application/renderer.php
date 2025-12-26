@@ -27,7 +27,7 @@ echo <<< __HTML
 
 <link href="$webroot/css/all.min.css" rel="stylesheet">
 <link href="$webroot/css/style.css" rel="stylesheet">
-__HTML
+__HTML;
 if ($url->mod == 'opds-viewer') {
 	echo "<link href=\"$webroot/css/opds-viewer.css\" rel=\"stylesheet\">\n";
 }
