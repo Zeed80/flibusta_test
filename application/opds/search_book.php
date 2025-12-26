@@ -59,12 +59,14 @@ if ($q == '') {
 
 // Создаем ключ кэша для поиска книг
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_search_book_v2_' . md5($q) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_search_book_v3_' . md5($q) . '_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
 if ($cachedContent !== null) {
     // Кэш действителен, отправляем с заголовками кэширования
+    // ВАЖНО: устанавливаем Content-Type ДО setCacheHeaders
+    header('Content-Type: application/atom+xml; charset=utf-8');
     $etag = $opdsCache->generateETag($cachedContent);
     $opdsCache->checkETag($etag);
     $opdsCache->setCacheHeaders($etag);
@@ -114,8 +116,8 @@ try {
 			WHERE b.deleted='0' 
 			AND (
 				b.Title ILIKE :q 
-				OR libavtorname.LastName ILIKE :q 
-				OR libavtorname.FirstName ILIKE :q
+				OR libavtorname.lastname ILIKE :q 
+				OR libavtorname.firstname ILIKE :q
 				OR libbannotations.body ILIKE :q
 			)
 			GROUP BY b.BookId, b.Title, b.time, b.lang, b.year, b.filetype, b.filesize, Body
@@ -159,7 +161,7 @@ while ($b = $books->fetchObject()) {
 	$authors = $dbh->prepare("SELECT libavtorname.lastname, libavtorname.firstname, libavtorname.middlename, libavtorname.AvtorId 
 		FROM libavtorname, libavtor 
 		WHERE libavtor.BookId=:bookid AND libavtor.AvtorId=libavtorname.AvtorId 
-		ORDER BY libavtorname.LastName");
+		ORDER BY libavtorname.lastname");
 	$authors->bindParam(":bookid", $bookId, PDO::PARAM_INT);
 	$authors->execute();
 	while ($a = $authors->fetchObject()) {
@@ -245,6 +247,8 @@ $content = $feed->render();
 $opdsCache->set($cacheKey, $content);
 
 // Устанавливаем заголовки кэширования и отправляем ответ
+// ВАЖНО: устанавливаем Content-Type перед setCacheHeaders
+header('Content-Type: application/atom+xml; charset=utf-8');
 $etag = $opdsCache->generateETag($content);
 $opdsCache->setCacheHeaders($etag);
 echo $content;

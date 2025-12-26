@@ -43,6 +43,8 @@ $cacheKey = 'opds_main_v3_' . OPDSVersion::detect();
 $cachedContent = $opdsCache->get($cacheKey);
 if ($cachedContent !== null) {
     // Кэш действителен, отправляем с заголовками кэширования
+    // ВАЖНО: устанавливаем Content-Type ДО setCacheHeaders (хотя он уже установлен выше, но для надежности)
+    header('Content-Type: application/atom+xml; charset=utf-8');
     $etag = $opdsCache->generateETag($cachedContent);
     $opdsCache->checkETag($etag);
     $opdsCache->setCacheHeaders($etag);
@@ -159,6 +161,8 @@ $content = $feed->render();
 $opdsCache->set($cacheKey, $content);
 
 // Устанавливаем заголовки кэширования и отправляем ответ
+// ВАЖНО: устанавливаем Content-Type перед setCacheHeaders (хотя он уже установлен выше, но для надежности)
+header('Content-Type: application/atom+xml; charset=utf-8');
 $etag = $opdsCache->generateETag($content);
 $opdsCache->setCacheHeaders($etag);
 echo $content;

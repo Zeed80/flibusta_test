@@ -1,4 +1,11 @@
 <?php
+declare(strict_types=1);
+
+// ВАЖНО: Устанавливаем заголовок ДО включения других файлов
+// Это гарантирует, что заголовки будут установлены правильно
+// Заголовок будет переустановлен в каждом файле, но это безопасно
+header('Content-Type: application/atom+xml; charset=utf-8');
+
 // Подключаем автозагрузку OPDS классов
 require_once(ROOT_PATH . 'opds/core/autoload.php');
 

@@ -301,6 +301,8 @@ $content = $feed->render();
 $opdsCache->set($cacheKey, $content);
 
 // Устанавливаем заголовки кэширования и отправляем ответ
+// ВАЖНО: устанавливаем Content-Type перед setCacheHeaders
+header('Content-Type: application/atom+xml; charset=utf-8');
 $etag = $opdsCache->generateETag($content);
 $opdsCache->setCacheHeaders($etag);
 echo $content;

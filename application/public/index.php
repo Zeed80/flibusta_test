@@ -189,6 +189,11 @@ switch ($sort_mode) {
 }
 
 if ($url->mod == 'opds') {
+	// Для OPDS запросов отключаем буферизацию вывода, чтобы заголовки устанавливались правильно
+	// Это критично для работы OPDS клиентов
+	if (ob_get_level() > 0) {
+		ob_end_clean();
+	}
 	include(ROOT_PATH . "/opds/index.php");
 } else {
 	include(ROOT_PATH . "renderer.php");
