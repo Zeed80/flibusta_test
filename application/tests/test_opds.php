@@ -13,13 +13,23 @@
  * - Ошибки обработки
  */
 
-// Подключаем необходимые файлы
+// Подключаем init.php для определения констант и подключения к БД
+require_once(__DIR__ . '/../init.php');
+
+// Подключаем автозагрузку OPDS классов
 require_once(ROOT_PATH . 'opds/core/autoload.php');
 
-// Базовый URL OPDS (используем переменную из окружения или дефолт)
-$baseUrl = isset($_SERVER['HTTP_HOST']) 
-    ? 'http://' . $_SERVER['HTTP_HOST'] . '/opds'
-    : 'http://localhost:27100/opds';
+// Базовый URL OPDS (используем переменную $webroot из init.php или дефолт)
+global $webroot;
+if (php_sapi_name() === 'cli') {
+    // CLI режим - используем localhost
+    $baseUrl = 'http://localhost:27100' . ($webroot ?: '') . '/opds';
+} else {
+    // Веб режим - используем текущий хост
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:27100';
+    $baseUrl = $protocol . '://' . $host . ($webroot ?: '') . '/opds';
+}
 $tests = [];
 $results = [];
 
