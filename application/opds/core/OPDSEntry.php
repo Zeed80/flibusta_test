@@ -48,9 +48,15 @@ class OPDSEntry {
     }
     
     public function setContent($content, $type = 'text') {
+        // Для text типа не используем normalize_text_for_opds, чтобы избежать проблем
         // Для HTML контента сохраняем структуру, но нормализуем текст
         $preserve_html = ($type === 'html' || $type === 'text/html');
-        $this->content = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($content, $preserve_html) : $content;
+        if ($type === 'text' && !$preserve_html) {
+            // Для обычного текста не нормализуем, чтобы сохранить оригинальный текст
+            $this->content = $content;
+        } else {
+            $this->content = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($content, $preserve_html) : $content;
+        }
         $this->contentType = $type;
         return $this;
     }
@@ -140,7 +146,15 @@ class OPDSEntry {
         
         if ($this->content) {
             $xml .= "\n <content type=\"" . htmlspecialchars($this->contentType, ENT_XML1, 'UTF-8') . "\">";
-            if ($this->contentType === 'text' || $this->contentType === 'html' || $this->contentType === 'text/html') {
+            if ($this->contentType === 'text') {
+                // Для обычного текста просто экранируем
+                $content = $this->content;
+                // Удаляем невалидные XML символы
+                $content = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $content);
+                // Экранируем специальные символы XML
+                $content = htmlspecialchars($content, ENT_XML1 | ENT_QUOTES, 'UTF-8', false);
+                $xml .= $content;
+            } elseif ($this->contentType === 'html' || $this->contentType === 'text/html') {
                 // Для HTML контента используем более агрессивную очистку
                 $content = $this->content;
                 

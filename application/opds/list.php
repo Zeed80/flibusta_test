@@ -282,17 +282,29 @@ try {
 	$books->bindValue(":offset", $offset, PDO::PARAM_INT);
 	$books->execute();
 
+	$entriesCount = 0;
+	$errorsCount = 0;
 	while ($b = $books->fetch(PDO::FETCH_OBJ)) {
 		try {
 			$entry = opds_book_entry($b, $webroot, $version);
 			if ($entry) {
 				$feed->addEntry($entry);
+				$entriesCount++;
+			} else {
+				$errorsCount++;
+				error_log("OPDS list.php: opds_book_entry returned null for book " . ($b->BookId ?? $b->bookid ?? 'unknown'));
 			}
 		} catch (Exception $e) {
+			$errorsCount++;
 			error_log("OPDS list.php: Error creating entry for book " . ($b->BookId ?? $b->bookid ?? 'unknown') . ": " . $e->getMessage());
 			// Продолжаем обработку других книг
 			continue;
 		}
+	}
+	
+	// Логируем статистику
+	if ($entriesCount === 0) {
+		error_log("OPDS list.php: WARNING - No entries were added to feed! Errors: $errorsCount");
 	}
 } catch (PDOException $e) {
 	error_log("OPDS list.php: SQL error in books query: " . $e->getMessage());

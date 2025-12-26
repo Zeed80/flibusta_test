@@ -169,8 +169,12 @@ while ($b = $books->fetchObject()) {
 	$body = $b->Body ?? $b->body ?? null;
 	if ($body) {
 		// Для HTML контента используем strip_tags чтобы избежать проблем с незакрытыми тегами
+		// Сначала декодируем HTML entities на случай если они уже экранированы
+		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 		// Удаляем все HTML теги и оставляем только текст
 		$body = strip_tags($body);
+		// Заменяем HTML entities на обычные символы
+		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 		// Удаляем невалидные XML символы
 		$body = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $body);
 		// Удаляем множественные пробелы и переносы строк

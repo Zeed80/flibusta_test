@@ -39,7 +39,9 @@ abstract class OPDSFeed {
     }
     
     public function setTitle($title) {
-        $this->title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($title) : $title;
+        // Не нормализуем title для feed, чтобы сохранить оригинальный текст
+        // normalize_text_for_opds может удалить кириллицу
+        $this->title = $title;
         return $this;
     }
     
