@@ -1,0 +1,297 @@
+/**
+ * OPDS Viewer - Стили для веб-клиента OPDS каталога
+ * Поддерживает кириллицу и адаптивный дизайн для мобильных устройств
+ */
+
+.opds-viewer {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    color: #212529;
+}
+
+.opds-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.opds-viewer-header h2 {
+    margin: 0;
+    font-size: 1.75rem;
+    color: #212529;
+}
+
+.opds-viewer-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.opds-viewer-breadcrumbs {
+    margin-bottom: 1rem;
+}
+
+.opds-viewer-search {
+    margin-bottom: 1.5rem;
+}
+
+.opds-viewer-loading {
+    padding: 3rem 1rem;
+}
+
+.opds-viewer-loading .spinner-border {
+    width: 3rem;
+    height: 3rem;
+    border-width: 0.3em;
+}
+
+.opds-viewer-error {
+    margin-bottom: 1.5rem;
+}
+
+.opds-viewer-content {
+    min-height: 200px;
+}
+
+/* Навигационные ссылки */
+.opds-navigation-links .card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.opds-navigation-links .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Фасеты (фильтры) */
+.opds-facets {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.375rem;
+}
+
+.opds-facet-group h6 {
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+    color: #495057;
+}
+
+.opds-facet-group .btn-group {
+    gap: 0.5rem;
+}
+
+/* Карточки записей */
+.opds-entry-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: 1px solid #dee2e6;
+}
+
+.opds-entry-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.opds-entry-cover {
+    width: 100%;
+    height: auto;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.opds-entry-card .card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: #212529;
+    line-height: 1.4;
+    /* Поддержка кириллицы */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.opds-entry-card .card-text {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: #6c757d;
+}
+
+.opds-entry-summary {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: #495057;
+    /* Поддержка кириллицы */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.opds-entry-links {
+    margin-top: auto;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e9ecef;
+}
+
+/* Модальное окно детальной информации */
+.opds-entry-details {
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+.opds-entry-details strong {
+    font-weight: 600;
+    color: #212529;
+}
+
+.opds-entry-details p {
+    margin-bottom: 0.75rem;
+}
+
+/* Пагинация */
+.opds-viewer-pagination {
+    margin-top: 2rem;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 767.98px) {
+    .opds-viewer-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .opds-viewer-header h2 {
+        font-size: 1.5rem;
+    }
+    
+    .opds-viewer-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .opds-viewer-controls .btn {
+        flex: 1;
+    }
+    
+    .opds-entry-card .card-title {
+        font-size: 1rem;
+    }
+    
+    .opds-entry-summary {
+        font-size: 0.8rem;
+    }
+    
+    .opds-facet-group .btn-group {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .opds-facet-group .btn {
+        width: 100%;
+        text-align: left;
+    }
+    
+    /* Карточки книг на мобильных - одна колонка */
+    .opds-entries.row {
+        --bs-gutter-x: 0;
+    }
+    
+    .opds-entries .col-md-6,
+    .opds-entries .col-lg-4 {
+        padding-left: 0;
+        padding-right: 0;
+        margin-bottom: 1rem;
+    }
+}
+
+/* Улучшения для планшетов */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .opds-entries .col-md-6 {
+        flex: 0 0 auto;
+        width: 50%;
+    }
+}
+
+/* Touch-friendly для мобильных */
+@media (hover: none) and (pointer: coarse) {
+    .opds-entry-card .btn {
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+    }
+    
+    .opds-navigation-links .btn {
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+    }
+    
+    .opds-facet-group .btn {
+        padding: 0.5rem 1rem;
+        min-height: 44px; /* Минимальный размер для touch */
+    }
+}
+
+/* Поддержка темной темы (опционально) */
+@media (prefers-color-scheme: dark) {
+    .opds-viewer {
+        color: #e9ecef;
+    }
+    
+    .opds-entry-card {
+        background-color: #212529;
+        border-color: #495057;
+    }
+    
+    .opds-entry-card .card-title {
+        color: #e9ecef;
+    }
+    
+    .opds-entry-card .card-text {
+        color: #adb5bd;
+    }
+    
+    .opds-facets {
+        background-color: #2c3136;
+    }
+}
+
+/* Улучшения доступности */
+.opds-entry-card:focus-within {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.opds-viewer a:focus,
+.opds-viewer button:focus {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+/* Анимации загрузки */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.opds-entry-card {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* Печать */
+@media print {
+    .opds-viewer-header,
+    .opds-viewer-controls,
+    .opds-viewer-search,
+    .opds-viewer-pagination,
+    .opds-entry-links {
+        display: none;
+    }
+    
+    .opds-entry-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+}

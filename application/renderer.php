@@ -28,6 +28,9 @@ echo <<< __HTML
 <link href="$webroot/css/all.min.css" rel="stylesheet">
 <link href="$webroot/css/style.css" rel="stylesheet">
 __HTML
+if ($url->mod == 'opds-viewer') {
+	echo "<link href=\"$webroot/css/opds-viewer.css\" rel=\"stylesheet\">\n";
+}
 ?>
 <style>
 .pagination>li.active>a {
@@ -64,6 +67,7 @@ $c3 = '';
 $c4 = '';
 $c5 = '';
 $c6 = '';
+$c7 = '';
 
 switch ($url->mod) {
 	case '':
@@ -83,6 +87,9 @@ switch ($url->mod) {
 		break;
 	case 'service':
 		$c6 = 'active';
+		break;
+	case 'opds-viewer':
+		$c7 = 'active';
 		break;
 	default:
 		$c1 = 'active';
@@ -107,6 +114,7 @@ echo <<< __HTML
 			<li class="nav-item $c3"><a title="" class="nav-link" href="$webroot/series/">Серии</a></li>
 			<li class="nav-item $c5"><a title="" class="nav-link" href="$webroot/fav/">Полка</a></li>
 			<li class="nav-item $c6"><a title="" class="nav-link" href="$webroot/service/">Сервис</a></li>
+			<li class="nav-item $c7"><a title="" class="nav-link" href="$webroot/opds-viewer/">OPDS каталог</a></li>
 		</ul>
 
 <div class="d-flex">
@@ -132,6 +140,11 @@ if (file_exists($url->module)) {
 ?>
 <div>&nbsp;</div>
 </div>
+<?php
+if ($url->mod == 'opds-viewer') {
+	echo "<script src=\"$webroot/js/opds-viewer.js\"></script>\n";
+}
+?>
 
 
 
