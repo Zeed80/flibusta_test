@@ -381,7 +381,7 @@ class OpdsViewer {
         // Рендерим breadcrumbs
         this.renderBreadcrumbs(feedData);
         
-        // Рендерим навигационные ссылки
+        // Рендерим навигационные ссылки (только если нет записей)
         if (feedData.links.length > 0 && feedData.entries.length === 0) {
             this.renderNavigationLinks(feedData.links, contentDiv);
         }
@@ -632,10 +632,33 @@ class OpdsViewer {
             cardBody.appendChild(categories);
         }
         
-        // Ссылки (скачивание, просмотр)
+        // Ссылки (навигация, скачивание, просмотр)
         const linksDiv = document.createElement('div');
         linksDiv.className = 'opds-entry-links';
         
+        // Ищем навигационные ссылки (subsection, http://opds-spec.org/sort/new и т.д.)
+        const navigationLinks = entry.links.filter(l => 
+            l.rel === 'subsection' ||
+            l.rel === 'http://opds-spec.org/sort/new' ||
+            l.rel === 'http://opds-spec.org/sort/popular' ||
+            l.rel === 'related' ||
+            l.rel === 'collection'
+        );
+        
+        // Если есть навигационные ссылки, делаем их основными
+        if (navigationLinks.length > 0) {
+            navigationLinks.forEach(navLink => {
+                const navBtn = document.createElement('button');
+                navBtn.className = 'btn btn-primary btn-sm me-2 mb-2';
+                navBtn.textContent = 'Открыть';
+                navBtn.addEventListener('click', () => {
+                    this.loadFeed(this.resolveUrl(navLink.href));
+                });
+                linksDiv.appendChild(navBtn);
+            });
+        }
+        
+        // Ссылки на скачивание (для книг)
         const acquisitionLinks = entry.links.filter(l => 
             l.rel === 'http://opds-spec.org/acquisition' ||
             l.rel === 'http://opds-spec.org/acquisition/open-access'
@@ -644,22 +667,24 @@ class OpdsViewer {
         if (acquisitionLinks.length > 0) {
             const downloadBtn = document.createElement('a');
             downloadBtn.href = this.resolveUrl(acquisitionLinks[0].href);
-            downloadBtn.className = 'btn btn-primary btn-sm';
+            downloadBtn.className = 'btn btn-success btn-sm me-2 mb-2';
             downloadBtn.textContent = 'Скачать';
             downloadBtn.target = '_blank';
             linksDiv.appendChild(downloadBtn);
         }
         
-        // Ссылка на детали
-        const detailsLink = entry.links.find(l => l.rel === 'alternate' || l.rel === 'self');
-        if (detailsLink) {
-            const detailsBtn = document.createElement('button');
-            detailsBtn.className = 'btn btn-outline-secondary btn-sm ms-2';
-            detailsBtn.textContent = 'Подробнее';
-            detailsBtn.addEventListener('click', () => {
-                this.showEntryDetails(entry);
-            });
-            linksDiv.appendChild(detailsBtn);
+        // Ссылка на детали (если нет навигационных ссылок)
+        if (navigationLinks.length === 0 && acquisitionLinks.length === 0) {
+            const detailsLink = entry.links.find(l => l.rel === 'alternate' || l.rel === 'self');
+            if (detailsLink) {
+                const detailsBtn = document.createElement('button');
+                detailsBtn.className = 'btn btn-outline-secondary btn-sm me-2 mb-2';
+                detailsBtn.textContent = 'Подробнее';
+                detailsBtn.addEventListener('click', () => {
+                    this.showEntryDetails(entry);
+                });
+                linksDiv.appendChild(detailsBtn);
+            }
         }
         
         cardBody.appendChild(linksDiv);
