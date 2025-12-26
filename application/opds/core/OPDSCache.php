@@ -11,16 +11,25 @@ class OPDSCache {
     protected $enabled;
     protected $dbName = 'flibusta';
     
-    // Singleton паттерн - запрещаем прямое создание экземпляров
+    /**
+     * Конструктор (приватный для singleton)
+     */
     private function __construct($cacheDir = null, $ttl = 3600, $enabled = true) {
-        if (self::$instance !== null) {
-            self::$instance = new self($cacheDir, $ttl, $enabled);
+        $this->cacheDir = $cacheDir ?: ROOT_PATH . 'cache/opds/';
+        $this->ttl = $ttl;
+        $this->enabled = $enabled;
+        
+        if ($this->enabled && !is_dir($this->cacheDir)) {
+            mkdir($this->cacheDir, 0755, true);
         }
     }
     
     /**
      * Получает единственный экземпляр класса (Singleton)
      * 
+     * @param string|null $cacheDir Директория кэша
+     * @param int $ttl Время жизни кэша в секундах
+     * @param bool $enabled Включено ли кэширование
      * @return OPDSCache Единственный экземпляр
      */
     public static function getInstance($cacheDir = null, $ttl = 3600, $enabled = true) {
@@ -31,10 +40,6 @@ class OPDSCache {
     }
     
     /**
-     * Конструктор (приватный для singleton)
-     */
-    
-    /**
      * Проверяет, включено ли кэширование
      */
     public function isEnabled() {
@@ -42,9 +47,12 @@ class OPDSCache {
     }
     
     /**
-     * Получает ключ кэша из параметров
+     * Получает ключ кэша из параметров (публичный метод для использования в OPDS файлах)
+     * 
+     * @param array $params Параметры для генерации ключа
+     * @return string MD5 хеш ключа кэша
      */
-    protected function getCacheKey($params) {
+    public function getCacheKey($params) {
         // Добавляем версию OPDS к ключу для разных форматов
         if (isset($params['version'])) {
             $params['_opds_version'] = $params['version'];

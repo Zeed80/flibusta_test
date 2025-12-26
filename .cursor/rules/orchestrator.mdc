@@ -229,30 +229,151 @@ graph TB
 
 ### Команды для выполнения
 
-**ВАЖНО**: Эти команды нужно выполнить на сервере через SSH!
+**ВАЖНО**: Вы подключаетесь к серверу напрямую через SSH-клиент (PuTTY, MobaXterm, Windows Terminal и т.п.). Подключитесь к серверу и выполните команды вручную!
 
 ```bash
-# Команда 1
-ssh user@server "cd /path/to/flibusta && docker-compose logs"
+# Команда 1: перезапуск контейнеров
+# Сначала подключитесь к серверу через ваш SSH-клиент
+ssh user@your-server.com
 
-# Команда 2
-ssh user@server "pg_dump -h postgres -U flibusta flibusta > backup.sql"
+# Затем перейдите в директорию проекта
+cd /path/to/flibusta
+
+# Перезапустите контейнеры
+docker-compose restart
+
+# Команда 2: просмотр логов php-fpm
+docker-compose logs -f php-fpm
+
+# Команда 3: бэкап базы данных
+pg_dump -h postgres -U flibusta flibusta > backup_$(date +%Y%m%d).sql
 ```
+
+### Инструкция по выполнению
+
+**ВАЖНО**: Не копируйте и вставляйте несколько команд за раз!
+
+1. **Подключитесь к серверу** через ваш SSH-клиент (PuTTY, MobaXterm, Windows Terminal)
+2. **Выполните команды** последовательно или по одной
+3. **Наблюдайте за результатами** в SSH-терминале
+4. **Документируйте результаты** в проекте
 
 ### Риски
 - ⚠️ Команды останавливают сервис: время простоя ~30 секунд
-- ⚠️ Требуется доступ к серверу по SSH
+- ⚠️ Требуется подключение к серверу по SSH
 
-### Необходимо действие от вас
-Пожалуйста, подтвердите, что вы хотите выполнить эти команды на сервере?
+### Необходимое действие от вас
 
-1. Выполнить сейчас
-2. Отложить
-3. Отменить
+1. **Подключитесь к серверу** через ваш SSH-клиент
+2. **Выполните команды** из списка выше
+3. **Наблюдайте за результатами** в терминале
+4. **Документируйте результаты** при необходимости
 
 ---
-**Вы подтвердите выполнение команд?**
+**Готово к выполнению?** (нет автоматического выполнения)
 ```
+
+### Примеры для разных типов команд
+
+#### Безопасные команды (можно выполнять без подтверждения):
+```bash
+# Просмотр логов (read-only)
+docker-compose logs -f php-fpm
+docker-compose logs --tail=100 nginx
+
+# Проверка статуса контейнеров
+docker ps
+docker stats
+
+# Мониторинг ресурсов
+htop
+df -h
+free -m
+```
+
+#### Опасные команды (обязательно предупреждать о рисках):
+```bash
+# Перезапуск сервисов (временное недоступие ~30 секунд)
+docker-compose restart
+docker-compose restart nginx
+systemctl restart php-fpm
+
+# Обновление образов
+docker-compose pull
+docker image pull postgres:14
+docker-compose pull && docker-compose up -d
+
+# Создание бэкапа (безопасно)
+pg_dump -h postgres -U flibusta flibusta > backup.sql
+
+# Изменение конфигураций (с предупреждением о рисках)
+echo "NEW_VALUE" >> .env  # Перезапуск может потребоваться
+systemctl reload nginx  # Потеря соединений
+```
+
+#### Критические команды (обязательно объяснять и спрашивать подтверждения):
+```bash
+# Удаление данных (осторожно!)
+rm -rf /var/backups/old
+docker volume rm flibusta_postgres_data  # Потеря данных!
+DROP TABLE books;
+TRUNCATE TABLE authors;
+DELETE FROM books WHERE id = 1;
+
+# Изменение структуры базы (осторожно!)
+ALTER TABLE books ADD COLUMN new_column TEXT;
+DROP DATABASE flibusta_old;
+CREATE INDEX idx_title ON books(title);
+
+# Изменение прав доступа (осторожно!)
+chmod 755 /var/www/flibusta
+chown -R www-data:www-data /var/www/flibusta
+chmod -R 644 /var/www/html
+chgrp -R www-data /var/www/html
+
+# Настройка firewall (осторожно!)
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+ufw allow 80/tcp
+ufw allow 443/tcp
+
+# Остановка/удаление сервисов (критично!)
+systemctl stop nginx
+systemctl disable postgresql
+apt-get remove nginx
+```
+
+### Дополнительные рекомендации
+
+1. **Используйте screen или tmux** для долгих операций:
+   ```bash
+   screen -S flibusta-updates
+   docker-compose pull
+   docker-compose up -d
+   # Ctrl+A затем D для отключения
+   ```
+
+2. **Создавайте скрипты для повторяющихся операций**:
+   ```bash
+   # Скрипт для бэкапов: scripts/backup.sh
+   #!/bin/bash
+   DATE=$(date +%Y%m%d_%H%M%S)
+   pg_dump -h postgres -U flibusta flibusta > backup_$DATE.sql
+   ```
+   Выполняйте: `bash scripts/backup.sh`
+
+3. **Проверяйте результат** перед критическими операциями:
+   ```bash
+   # Перед удалением данных
+   docker exec postgres psql -U flibusta -c "SELECT COUNT(*) FROM books;"
+   ```
+
+4. **Создавайте точки восстановления (snapshots)**:
+   ```bash
+   # Перед изменением структуры
+   pg_dump -h postgres -U flibusta flibusta > snapshot_before_change.sql
+   # После изменений
+   pg_dump -h postgres -U flibusta flibusta > snapshot_after_change.sql
+   ```
 
 ### Категории команд
 
