@@ -1,12 +1,13 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
 
-// Создаем фид с автоматическим определением версии
-$feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
+// Инициализируем кэш OPDS
+$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
 
+// Получаем параметры для кэша
 $genreMeta = isset($_GET['id']) ? trim($_GET['id']) : '';
 
+// Валидация жанра перед кэшем
 if ($genreMeta == '') {
     http_response_code(400);
     header('Content-Type: application/atom+xml; charset=utf-8');
@@ -26,6 +27,25 @@ if ($genreMeta == '') {
 
 // Валидация входных данных
 $genreMeta = htmlspecialchars($genreMeta, ENT_QUOTES, 'UTF-8');
+
+// Создаем ключ кэша для списка жанров
+$cacheKey = 'opds_listgenres_' . md5($genreMeta) . '_' . OPDSVersion::detect();
+
+// Проверяем кэш
+$cachedContent = $opdsCache->get($cacheKey);
+if ($cachedContent !== null) {
+    // Кэш действителен, отправляем с заголовками кэширования
+    $etag = $opdsCache->generateETag($cachedContent);
+    $opdsCache->checkETag($etag);
+    $opdsCache->setCacheHeaders($etag);
+    echo $cachedContent;
+    exit;
+}
+
+// Если кэша нет или устарел, генерируем фид
+// Создаем фид с автоматическим определением версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
 
 $feed->setId('tag:root:listgenres');
 $feed->setTitle("Жанры в $genreMeta");
@@ -78,5 +98,14 @@ while ($g = $gs->fetch()) {
 	$feed->addEntry($entry);
 }
 
-echo $feed->render();
+// Рендерим фид
+$content = $feed->render();
+
+// Сохраняем в кэш
+$opdsCache->set($cacheKey, $content);
+
+// Устанавливаем заголовки кэширования и отправляем ответ
+$etag = $opdsCache->generateETag($content);
+$opdsCache->setCacheHeaders($etag);
+echo $content;
 ?>

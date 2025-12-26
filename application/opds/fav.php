@@ -1,11 +1,13 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
 
-// Создаем фид с автоматическим определением версии
-$feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
+// Инициализируем кэш OPDS
+$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
 
+// Получаем параметры для кэша
 $uuid = isset($_GET['uuid']) ? $_GET['uuid'] : '';
+
+// Валидация UUID перед кэшем
 if ($uuid == '') {
     http_response_code(400);
     header('Content-Type: application/atom+xml; charset=utf-8');
@@ -40,6 +42,25 @@ if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 </feed>';
     exit;
 }
+
+// Создаем ключ кэша для избранного пользователя
+$cacheKey = 'opds_fav_' . md5($uuid) . '_' . OPDSVersion::detect();
+
+// Проверяем кэш
+$cachedContent = $opdsCache->get($cacheKey);
+if ($cachedContent !== null) {
+    // Кэш действителен, отправляем с заголовками кэширования
+    $etag = $opdsCache->generateETag($cachedContent);
+    $opdsCache->checkETag($etag);
+    $opdsCache->setCacheHeaders($etag);
+    echo $cachedContent;
+    exit;
+}
+
+// Если кэша нет или устарел, генерируем фид
+// Создаем фид с автоматическим определением версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
 
 $feed->setId("tag:fav:$uuid");
 $feed->setTitle('Избранное');
@@ -87,5 +108,14 @@ while ($b = $books->fetch()) {
 	$feed->addEntry($entry);
 }
 
-echo $feed->render();
+// Рендерим фид
+$content = $feed->render();
+
+// Сохраняем в кэш
+$opdsCache->set($cacheKey, $content);
+
+// Устанавливаем заголовки кэширования и отправляем ответ
+$etag = $opdsCache->generateETag($content);
+$opdsCache->setCacheHeaders($etag);
+echo $content;
 ?>

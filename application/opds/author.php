@@ -271,7 +271,3 @@ $etag = $opdsCache->generateETag($content);
 $opdsCache->setCacheHeaders($etag);
 echo $content;
 ?>
-}
-
-echo $feed->render();
-?>

@@ -1,13 +1,14 @@
 <?php
 header('Content-Type: application/atom+xml; charset=utf-8');
 
-// Создаем фид с автоматическим определением версии
-$feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
+// Инициализируем кэш OPDS
+$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
 
+// Получаем параметры для кэша
 $q = isset($_GET['q']) ? trim($_GET['q']) : '';
 $get = "?q=" . urlencode($q);
 
+// Валидация поискового запроса
 if ($q == '') {
     http_response_code(400);
     header('Content-Type: application/atom+xml; charset=utf-8');
@@ -24,6 +25,25 @@ if ($q == '') {
 </feed>';
     exit;
 }
+
+// Создаем ключ кэша для поиска книг
+$cacheKey = 'opds_search_book_' . md5($q) . '_' . OPDSVersion::detect();
+
+// Проверяем кэш
+$cachedContent = $opdsCache->get($cacheKey);
+if ($cachedContent !== null) {
+    // Кэш действителен, отправляем с заголовками кэширования
+    $etag = $opdsCache->generateETag($cachedContent);
+    $opdsCache->checkETag($etag);
+    $opdsCache->setCacheHeaders($etag);
+    echo $cachedContent;
+    exit;
+}
+
+// Если кэша нет или устарел, генерируем фид
+// Создаем фид с автоматическим определением версии
+$feed = OPDSFeedFactory::create();
+$version = $feed->getVersion();
 
 // Настройка фида
 $feed->setId('tag:root:authors');
@@ -126,5 +146,14 @@ while ($b = $books->fetchObject()) {
 	$feed->addEntry($entry);
 }
 
-echo $feed->render();
+// Рендерим фид
+$content = $feed->render();
+
+// Сохраняем в кэш
+$opdsCache->set($cacheKey, $content);
+
+// Устанавливаем заголовки кэширования и отправляем ответ
+$etag = $opdsCache->generateETag($content);
+$opdsCache->setCacheHeaders($etag);
+echo $content;
 ?>
