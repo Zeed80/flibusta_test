@@ -56,14 +56,18 @@ $feed->addLink(new OPDSLink(
 $gs = $dbh->prepare("SELECT DISTINCT(genremeta) genre FROM libgenrelist ORDER BY genre");
 $gs->execute();
 
-while ($g = $gs->fetch()) {
+while ($g = $gs->fetch(PDO::FETCH_OBJ)) {
+	$genre = $g->genre ?? '';
+	if (!$genre) {
+		continue;
+	}
 	$entry = new OPDSEntry();
-	$entry->setId("tag:genre:" . urlencode($g->genre));
-	$entry->setTitle($g->genre);
+	$entry->setId("tag:genre:" . urlencode($genre));
+	$entry->setTitle($genre);
 	$entry->setUpdated($cdt);
 	$entry->setContent('', 'text');
 	$entry->addLink(new OPDSLink(
-		$webroot . '/opds/listgenres/?id=' . urlencode($g->genre),
+		$webroot . '/opds/listgenres/?id=' . urlencode($genre),
 		'http://opds-spec.org/acquisition',
 		OPDSVersion::getProfile($version, 'acquisition')
 	));

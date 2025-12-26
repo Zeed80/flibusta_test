@@ -614,17 +614,26 @@ function opds_acquisition_entry($id, $title, $updated, $content, $href, $version
 function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	global $dbh;
 	
+	// Поддерживаем оба варианта имен полей (BookId и bookid)
+	$bookId = $b->BookId ?? $b->bookid ?? null;
+	$title = $b->Title ?? $b->title ?? 'Без названия';
+	$time = $b->time ?? $b->Time ?? date('c');
+	
+	if (!$bookId) {
+		return null; // Пропускаем записи без ID
+	}
+	
 	$entry = new OPDSEntry();
-	$entry->setId("tag:book:{$b->bookid}");
-	$entry->setTitle($b->title);
-	$entry->setUpdated($b->time ?: date('c'));
+	$entry->setId("tag:book:{$bookId}");
+	$entry->setTitle($title);
+	$entry->setUpdated($time);
 	
 	// Аннотация
 	$ann = $dbh->prepare("SELECT annotation FROM libbannotations WHERE BookId=:id LIMIT 1");
-	$ann->bindParam(":id", $b->BookId);
+	$ann->bindParam(":id", $bookId, PDO::PARAM_INT);
 	$ann->execute();
-	if ($tmp = $ann->fetch()) {
-		$an = $tmp->annotation;
+	if ($tmp = $ann->fetch(PDO::FETCH_OBJ)) {
+		$an = $tmp->annotation ?? '';
 	} else {
 		$an = '';
 	}
@@ -633,16 +642,19 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$genres = $dbh->prepare("SELECT genrecode, GenreId, GenreDesc FROM libgenre 
 		JOIN libgenrelist USING(GenreId)
 		WHERE BookId=:id");
-	$genres->bindParam(":id", $b->BookId);
+	$genres->bindParam(":id", $bookId, PDO::PARAM_INT);
 	$genres->execute();
-	while ($g = $genres->fetch()) {
-		$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc) : $g->genredesc;
-		$entry->addCategory(
-			$webroot . '/subject/' . urlencode($g->genrecode),
-			$normalizedGenreDesc
-		);
-		// Также добавляем как dc:subject
-		$entry->addMetadata('dc', 'subject', $normalizedGenreDesc);
+	while ($g = $genres->fetch(PDO::FETCH_OBJ)) {
+		$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->GenreDesc ?? $g->genredesc ?? '') : ($g->GenreDesc ?? $g->genredesc ?? '');
+		$genrecode = $g->genrecode ?? '';
+		if ($genrecode && $normalizedGenreDesc) {
+			$entry->addCategory(
+				$webroot . '/subject/' . urlencode($genrecode),
+				$normalizedGenreDesc
+			);
+			// Также добавляем как dc:subject
+			$entry->addMetadata('dc', 'subject', $normalizedGenreDesc);
+		}
 	}
 	
 	// Серии
@@ -650,21 +662,26 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$seq = $dbh->prepare("SELECT SeqId, SeqName, SeqNumb FROM libseq
 		JOIN libseqname USING(SeqId)
 		WHERE BookId=:id");
-	$seq->bindParam(":id", $b->BookId);
+	$seq->bindParam(":id", $bookId, PDO::PARAM_INT);
 	$seq->execute();
-	while ($s = $seq->fetch()) {
-		$ssq = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
-		if ($s->seqnumb > 0) {
-			$ssq .= " ($s->seqnumb)";
+	while ($s = $seq->fetch(PDO::FETCH_OBJ)) {
+		$seqName = $s->SeqName ?? $s->seqname ?? '';
+		$seqNumb = $s->SeqNumb ?? $s->seqnumb ?? 0;
+		$seqId = $s->SeqId ?? $s->seqid ?? null;
+		$ssq = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($seqName) : $seqName;
+		if ($seqNumb > 0) {
+			$ssq .= " ($seqNumb)";
 		}
 		$sq .= ($sq ? ', ' : '') . $ssq;
-		$link = new OPDSLink(
-			$webroot . '/opds/list?seq_id=' . $s->seqid,
-			'related',
-			OPDSVersion::getProfile($version, 'acquisition'),
-			'Все книги серии "' . $ssq . '"'
-		);
-		$entry->addLink($link);
+		if ($seqId) {
+			$link = new OPDSLink(
+				$webroot . '/opds/list?seq_id=' . $seqId,
+				'related',
+				OPDSVersion::getProfile($version, 'acquisition'),
+				'Все книги серии "' . $ssq . '"'
+			);
+			$entry->addLink($link);
+		}
 	}
 	if ($sq != '') {
 		$sq = "Сборник: $sq";
@@ -675,32 +692,46 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 		LEFT JOIN libavtorname USING(AvtorId)
 		LEFT JOIN libapics USING(AvtorId)
 		WHERE a.BookId=:id");
-	$au->bindParam(":id", $b->BookId);
+	$au->bindParam(":id", $bookId, PDO::PARAM_INT);
 	$au->execute();
-	while ($a = $au->fetch()) {
-		$authorName = trim("$a->lastname $a->firstname $a->middlename");
-		// Нормализация уже применяется в addAuthor(), но нормализуем для ссылки
-		$normalizedAuthorName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
-		$entry->addAuthor($authorName, $webroot . '/opds/author?author_id=' . $a->avtorid);
-		$link = new OPDSLink(
-			$webroot . '/opds/list?author_id=' . $a->avtorid,
-			'related',
-			OPDSVersion::getProfile($version, 'acquisition'),
-			'Все книги автора ' . $normalizedAuthorName
-		);
-		$entry->addLink($link);
+	while ($a = $au->fetch(PDO::FETCH_OBJ)) {
+		$lastName = $a->LastName ?? $a->lastname ?? '';
+		$firstName = $a->FirstName ?? $a->firstname ?? '';
+		$middleName = $a->middlename ?? '';
+		$authorName = trim("$lastName $firstName $middleName");
+		$authorId = $a->AvtorId ?? $a->avtorid ?? null;
+		if ($authorName && $authorId) {
+			// Нормализация уже применяется в addAuthor(), но нормализуем для ссылки
+			$normalizedAuthorName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
+			$entry->addAuthor($authorName, $webroot . '/opds/author?author_id=' . $authorId);
+			$link = new OPDSLink(
+				$webroot . '/opds/list?author_id=' . $authorId,
+				'related',
+				OPDSVersion::getProfile($version, 'acquisition'),
+				'Все книги автора ' . $normalizedAuthorName
+			);
+			$entry->addLink($link);
+		}
 	}
 	
-	// Метаданные
-	if (trim($b->lang)) {
-		$entry->addMetadata('dc', 'language', trim($b->lang));
+	// Метаданные - поддерживаем оба варианта регистра
+	$lang = $b->lang ?? $b->Lang ?? '';
+	$year = $b->year ?? $b->Year ?? 0;
+	$filetype = $b->filetype ?? $b->FileType ?? '';
+	$filesize = $b->filesize ?? $b->FileSize ?? 0;
+	$keywords = $b->keywords ?? $b->Keywords ?? '';
+	
+	if (trim($lang)) {
+		$entry->addMetadata('dc', 'language', trim($lang));
 	}
-	if ($b->year > 0) {
-		$entry->addMetadata('dc', 'issued', (string)$b->year);
+	if ($year > 0) {
+		$entry->addMetadata('dc', 'issued', (string)$year);
 	}
-	$entry->addMetadata('dc', 'format', trim($b->filetype));
-	if (isset($b->filesize) && $b->filesize > 0) {
-		$entry->addMetadata('dcterms', 'extent', formatSizeUnits($b->filesize));
+	if (trim($filetype)) {
+		$entry->addMetadata('dc', 'format', trim($filetype));
+	}
+	if ($filesize > 0) {
+		$entry->addMetadata('dcterms', 'extent', formatSizeUnits($filesize));
 	}
 	
 	// Summary
@@ -711,18 +742,20 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	if ($sq) {
 		$summary .= $sq . "\n";
 	}
-	if (isset($b->keywords) && $b->keywords) {
-		$summary .= $b->keywords . "\n";
+	if ($keywords) {
+		$summary .= $keywords . "\n";
 	}
-	if ($b->year > 0) {
-		$summary .= "Год издания: $b->year\n";
+	if ($year > 0) {
+		$summary .= "Год издания: $year\n";
 	}
-	$summary .= "Формат: " . trim($b->filetype) . "\n";
-	if (trim($b->lang)) {
-		$summary .= "Язык: " . trim($b->lang) . "\n";
+	if (trim($filetype)) {
+		$summary .= "Формат: " . trim($filetype) . "\n";
 	}
-	if (isset($b->filesize) && $b->filesize > 0) {
-		$summary .= "Размер: " . formatSizeUnits($b->filesize);
+	if (trim($lang)) {
+		$summary .= "Язык: " . trim($lang) . "\n";
+	}
+	if ($filesize > 0) {
+		$summary .= "Размер: " . formatSizeUnits($filesize);
 	}
 	if ($summary) {
 		$entry->setSummary(trim($summary), 'text');
@@ -730,18 +763,18 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	
 	// Ссылки на изображения
 	$entry->addLink(new OPDSLink(
-		$webroot . '/extract_cover.php?id=' . $b->bookid,
+		$webroot . '/extract_cover.php?id=' . $bookId,
 		'http://opds-spec.org/image/thumbnail',
 		'image/jpeg'
 	));
 	$entry->addLink(new OPDSLink(
-		$webroot . '/extract_cover.php?id=' . $b->bookid,
+		$webroot . '/extract_cover.php?id=' . $bookId,
 		'http://opds-spec.org/image',
 		'image/jpeg'
 	));
 	
 	// Ссылка на скачивание с правильными MIME-типами
-	$fileType = trim($b->filetype);
+	$fileType = trim($filetype);
 	$mimeTypes = [
 		'fb2' => 'application/fb2+zip',
 		'epub' => 'application/epub+zip',
@@ -759,9 +792,9 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$mimeType = isset($mimeTypes[$fileType]) ? $mimeTypes[$fileType] : 'application/' . $fileType;
 	
 	if ($fileType == 'fb2') {
-		$downloadUrl = $webroot . '/fb2.php?id=' . $b->bookid;
+		$downloadUrl = $webroot . '/fb2.php?id=' . $bookId;
 	} else {
-		$downloadUrl = $webroot . '/usr.php?id=' . $b->bookid;
+		$downloadUrl = $webroot . '/usr.php?id=' . $bookId;
 	}
 	
 	$entry->addLink(new OPDSLink(
@@ -772,7 +805,7 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	
 	// Ссылка на веб-страницу
 	$entry->addLink(new OPDSLink(
-		$webroot . '/book/view/' . $b->bookid,
+		$webroot . '/book/view/' . $bookId,
 		'alternate',
 		'text/html',
 		'Книга на сайте'

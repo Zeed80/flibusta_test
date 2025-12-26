@@ -168,6 +168,11 @@ while ($b = $books->fetchObject()) {
 	// Исправляем регистр: в SQL используется Body, поэтому обращаемся к Body
 	$body = $b->Body ?? $b->body ?? null;
 	if ($body) {
+		// Очищаем HTML контент от невалидных XML символов и незакрытых тегов
+		// Заменяем незакрытые <br> на <br/>
+		$body = preg_replace('/<br\s*>/i', '<br/>', $body);
+		// Удаляем невалидные XML символы
+		$body = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $body);
 		// Экранируем HTML контент для безопасного включения в XML
 		$entry->setContent($body, 'text/html');
 	}

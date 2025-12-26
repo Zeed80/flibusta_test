@@ -221,15 +221,18 @@ if ($version === OPDSVersion::VERSION_1_2) {
 	// Фасет по языкам
 	$langFacet = new OPDSFacet('language', 'Язык');
 	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY lang LIMIT 10");
-	while ($lang = $langs->fetch()) {
-		$langParams = array_merge($params, ['lang' => $lang->lang, 'page' => 1]);
-		$langFacet->addFacetValue(
-			$lang->lang,
-			$lang->lang,
-			$baseUrl . '?' . http_build_query($langParams),
-			(int)$lang->cnt,
-			isset($_GET['lang']) && $_GET['lang'] === $lang->lang
-		);
+	while ($lang = $langs->fetch(PDO::FETCH_OBJ)) {
+		$langValue = $lang->lang ?? '';
+		if ($langValue) {
+			$langParams = array_merge($params, ['lang' => $langValue, 'page' => 1]);
+			$langFacet->addFacetValue(
+				$langValue,
+				$langValue,
+				$baseUrl . '?' . http_build_query($langParams),
+				(int)($lang->cnt ?? 0),
+				isset($_GET['lang']) && $_GET['lang'] === $langValue
+			);
+		}
 	}
 	if (count($langFacet->getActiveFacets()) > 0 || $langs->rowCount() > 0) {
 		$feed->addFacet($langFacet);
@@ -238,15 +241,18 @@ if ($version === OPDSVersion::VERSION_1_2) {
 	// Фасет по форматам
 	$formatFacet = new OPDSFacet('format', 'Формат');
 	$formats = $dbh->query("SELECT DISTINCT filetype, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND filetype != '' GROUP BY filetype ORDER BY filetype");
-	while ($format = $formats->fetch()) {
-		$formatParams = array_merge($params, ['format' => $format->filetype, 'page' => 1]);
-		$formatFacet->addFacetValue(
-			$format->filetype,
-			strtoupper($format->filetype),
-			$baseUrl . '?' . http_build_query($formatParams),
-			(int)$format->cnt,
-			isset($_GET['format']) && $_GET['format'] === $format->filetype
-		);
+	while ($format = $formats->fetch(PDO::FETCH_OBJ)) {
+		$filetype = $format->filetype ?? '';
+		if ($filetype) {
+			$formatParams = array_merge($params, ['format' => $filetype, 'page' => 1]);
+			$formatFacet->addFacetValue(
+				$filetype,
+				strtoupper($filetype),
+				$baseUrl . '?' . http_build_query($formatParams),
+				(int)($format->cnt ?? 0),
+				isset($_GET['format']) && $_GET['format'] === $filetype
+			);
+		}
 	}
 	if (count($formatFacet->getActiveFacets()) > 0 || $formats->rowCount() > 0) {
 		$feed->addFacet($formatFacet);
