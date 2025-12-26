@@ -1419,10 +1419,31 @@ update_nginx_domain() {
     
     log "${BLUE}Обновление домена в nginx конфигурации...${NC}"
     
-    # Заменяем server_name _; на server_name $domain;
-    if sed -i.bak "s/server_name _;/server_name $domain;/" "$nginx_conf" 2>/dev/null; then
-        log "${GREEN}✓ Домен обновлен в nginx конфигурации: $domain${NC}"
-        return 0
+    # Создаем резервную копию
+    cp "$nginx_conf" "${nginx_conf}.bak.$(date +%s)" 2>/dev/null || true
+    
+    # Заменяем server_name _; на server_name $domain; (экранируем точку в домене)
+    local domain_escaped=$(echo "$domain" | sed 's/\./\\./g')
+    
+    # Заменяем все вхождения server_name _; на server_name $domain;
+    if sed -i.bak "s/server_name _;/server_name $domain;/g" "$nginx_conf" 2>/dev/null; then
+        # Проверяем, что замена произошла
+        if grep -q "server_name $domain;" "$nginx_conf"; then
+            log "${GREEN}✓ Домен обновлен в nginx конфигурации: $domain${NC}"
+            
+            # Показываем измененные строки
+            local changed_lines=$(grep -n "server_name $domain;" "$nginx_conf" | head -3)
+            if [ -n "$changed_lines" ]; then
+                log "${BLUE}Обновленные строки:${NC}"
+                echo "$changed_lines" | sed 's/^/  /'
+            fi
+            
+            return 0
+        else
+            log "${YELLOW}⚠ Замена выполнена, но домен не найден в конфигурации${NC}"
+            log "${YELLOW}Проверьте файл $nginx_conf вручную${NC}"
+            return 1
+        fi
     else
         log "${RED}✗ Ошибка при обновлении домена в nginx конфигурации${NC}"
         return 1
@@ -1451,22 +1472,98 @@ create_certbot_dir() {
 check_port_80() {
     log "${BLUE}Проверка доступности порта 80...${NC}"
     
-    # Проверяем, занят ли порт 80 на хосте
+    # Проверяем, занят ли порт 80 на хосте (кроме Docker)
     if command -v netstat &> /dev/null; then
-        if netstat -tuln 2>/dev/null | grep -q ":80 "; then
-            log "${YELLOW}⚠ Порт 80 уже используется на хосте${NC}"
+        local port_80_usage=$(netstat -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy" | wc -l)
+        if [ "$port_80_usage" -gt 0 ]; then
+            log "${YELLOW}⚠ Порт 80 используется (кроме Docker):${NC}"
+            netstat -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy"
             log "${YELLOW}Убедитесь, что Docker контейнер может использовать порт 80${NC}"
-            return 1
         fi
     elif command -v ss &> /dev/null; then
-        if ss -tuln 2>/dev/null | grep -q ":80 "; then
-            log "${YELLOW}⚠ Порт 80 уже используется на хосте${NC}"
+        local port_80_usage=$(ss -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy" | wc -l)
+        if [ "$port_80_usage" -gt 0 ]; then
+            log "${YELLOW}⚠ Порт 80 используется (кроме Docker):${NC}"
+            ss -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy"
             log "${YELLOW}Убедитесь, что Docker контейнер может использовать порт 80${NC}"
-            return 1
         fi
     fi
     
-    log "${GREEN}✓ Порт 80 свободен${NC}"
+    log "${GREEN}✓ Проверка порта 80 завершена${NC}"
+    return 0
+}
+
+# Диагностика ACME challenge
+diagnose_acme_challenge() {
+    local domain=$1
+    
+    log "${BLUE}Диагностика ACME challenge для домена: $domain${NC}"
+    
+    # Проверка директории certbot
+    if [ ! -d "/var/www/certbot" ]; then
+        log "${RED}✗ Директория /var/www/certbot не существует${NC}"
+        return 1
+    fi
+    
+    if [ ! -w "/var/www/certbot" ]; then
+        log "${YELLOW}⚠ Директория /var/www/certbot не доступна для записи${NC}"
+        log "${YELLOW}Попытка исправления прав доступа...${NC}"
+        sudo chmod 755 /var/www/certbot 2>/dev/null || true
+    fi
+    
+    # Создаем тестовый файл
+    local test_file="/var/www/certbot/test-$(date +%s)"
+    if echo "test" | sudo tee "$test_file" >/dev/null 2>&1; then
+        log "${GREEN}✓ Директория /var/www/certbot доступна для записи${NC}"
+        sudo rm -f "$test_file" 2>/dev/null || true
+    else
+        log "${RED}✗ Не удалось создать тестовый файл в /var/www/certbot${NC}"
+        return 1
+    fi
+    
+    # Проверка доступности через localhost
+    log "${BLUE}Проверка доступности через localhost...${NC}"
+    local test_response=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost/.well-known/acme-challenge/test" 2>/dev/null || echo "000")
+    if [ "$test_response" = "404" ] || [ "$test_response" = "403" ]; then
+        log "${GREEN}✓ Nginx отвечает на запросы к /.well-known/acme-challenge/${NC}"
+    else
+        log "${YELLOW}⚠ Nginx не отвечает правильно (код: $test_response)${NC}"
+        log "${YELLOW}Проверьте конфигурацию nginx${NC}"
+    fi
+    
+    # Проверка доступности через домен (если доступен)
+    log "${BLUE}Проверка доступности через домен $domain...${NC}"
+    local domain_response=$(curl -s -o /dev/null -w "%{http_code}" "http://$domain/.well-known/acme-challenge/test" 2>/dev/null || echo "000")
+    if [ "$domain_response" = "404" ] || [ "$domain_response" = "403" ]; then
+        log "${GREEN}✓ Домен $domain доступен и отвечает на запросы${NC}"
+    else
+        log "${YELLOW}⚠ Домен $domain не доступен или не отвечает правильно (код: $domain_response)${NC}"
+        log "${YELLOW}Возможные причины:${NC}"
+        log "${YELLOW}  - DNS не указывает на этот сервер${NC}"
+        log "${YELLOW}  - Порт 80 заблокирован firewall${NC}"
+        log "${YELLOW}  - Проброс портов не настроен${NC}"
+    fi
+    
+    # Проверка конфигурации nginx
+    log "${BLUE}Проверка конфигурации nginx...${NC}"
+    local compose_cmd=$(get_compose_cmd)
+    if $compose_cmd exec -T webserver nginx -t 2>&1 | grep -q "successful"; then
+        log "${GREEN}✓ Конфигурация nginx валидна${NC}"
+    else
+        log "${RED}✗ Конфигурация nginx содержит ошибки${NC}"
+        $compose_cmd exec -T webserver nginx -t 2>&1 | head -5
+        return 1
+    fi
+    
+    # Проверка монтирования volume
+    log "${BLUE}Проверка монтирования volume certbot...${NC}"
+    if $compose_cmd exec -T webserver test -d /var/www/certbot 2>/dev/null; then
+        log "${GREEN}✓ Volume /var/www/certbot смонтирован в контейнере${NC}"
+    else
+        log "${RED}✗ Volume /var/www/certbot не смонтирован в контейнере${NC}"
+        return 1
+    fi
+    
     return 0
 }
 
@@ -1497,11 +1594,27 @@ get_ssl_certificate() {
         return 1
     fi
     
-    # Проверяем доступность ACME challenge endpoint
-    sleep 2
-    if ! curl -s -o /dev/null -w "%{http_code}" "http://localhost/.well-known/acme-challenge/test" 2>/dev/null | grep -q "404\|403"; then
-        log "${YELLOW}⚠ ACME challenge endpoint может быть недоступен${NC}"
-        log "${YELLOW}Проверьте конфигурацию nginx и доступность порта 80${NC}"
+    # Проверяем, что домен обновлен в конфигурации nginx
+    local nginx_conf="phpdocker/nginx/nginx.conf"
+    if [ -f "$nginx_conf" ]; then
+        if ! grep -q "server_name $domain;" "$nginx_conf" 2>/dev/null; then
+            log "${YELLOW}⚠ Домен не найден в конфигурации nginx, обновляем...${NC}"
+            if ! update_nginx_domain "$domain"; then
+                log "${RED}✗ Не удалось обновить домен в конфигурации nginx${NC}"
+                return 1
+            fi
+            
+            # Перезапускаем nginx для применения изменений
+            log "${BLUE}Перезапуск nginx для применения изменений...${NC}"
+            $compose_cmd restart webserver >/dev/null 2>&1
+            sleep 3
+        fi
+    fi
+    
+    # Выполняем диагностику ACME challenge
+    if ! diagnose_acme_challenge "$domain"; then
+        log "${YELLOW}⚠ Обнаружены проблемы с конфигурацией ACME challenge${NC}"
+        log "${YELLOW}Попробуем продолжить, но сертификат может не быть получен${NC}"
     fi
     
     # Параметры для certbot
