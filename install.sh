@@ -586,6 +586,31 @@ get_compose_cmd() {
     fi
 }
 
+# Нормализация и проверка портов из .env
+normalize_ports() {
+    # Нормализация FLIBUSTA_PROMETHEUS_PORT
+    if [ -n "$FLIBUSTA_PROMETHEUS_PORT" ]; then
+        FLIBUSTA_PROMETHEUS_PORT=$(echo "$FLIBUSTA_PROMETHEUS_PORT" | tr -d '[:space:]')
+        if ! [[ "$FLIBUSTA_PROMETHEUS_PORT" =~ ^[0-9]+$ ]]; then
+            log "${YELLOW}⚠ FLIBUSTA_PROMETHEUS_PORT имеет недопустимое значение: '$FLIBUSTA_PROMETHEUS_PORT', используем значение по умолчанию: 9090${NC}"
+            FLIBUSTA_PROMETHEUS_PORT=9090
+            # Обновляем в .env файле
+            if [ -f ".env" ]; then
+                if grep -q "^FLIBUSTA_PROMETHEUS_PORT=" .env; then
+                    sed -i "s|^FLIBUSTA_PROMETHEUS_PORT=.*|FLIBUSTA_PROMETHEUS_PORT=9090|" .env
+                else
+                    echo "FLIBUSTA_PROMETHEUS_PORT=9090" >> .env
+                fi
+            fi
+        fi
+    else
+        FLIBUSTA_PROMETHEUS_PORT=9090
+    fi
+    
+    # Экспортируем переменную для docker-compose
+    export FLIBUSTA_PROMETHEUS_PORT
+}
+
 # Сборка образов
 build_containers() {
     log "${BLUE}Сборка Docker образов...${NC}"
@@ -597,6 +622,9 @@ build_containers() {
         set -a
         source .env 2>/dev/null || true
         set +a
+        
+        # Нормализация и проверка портов
+        normalize_ports
     fi
     
     if $compose_cmd build; then
@@ -779,6 +807,9 @@ start_containers() {
         set -a
         source .env 2>/dev/null || true
         set +a
+        
+        # Нормализация и проверка портов
+        normalize_ports
     fi
     
     # Запуск контейнеров (образы должны быть собраны заранее)
@@ -899,6 +930,9 @@ restart_containers() {
         set -a
         source .env 2>/dev/null || true
         set +a
+        
+        # Нормализация и проверка портов
+        normalize_ports
     fi
     
     if [ -f "docker-compose.yml" ]; then
