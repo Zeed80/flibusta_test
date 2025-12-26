@@ -45,6 +45,8 @@ class OPDSVersion {
                 'fbreader',
                 'moon+ reader',
                 'moonreader',
+                'moon+reader',
+                'moonreaderpro',
                 'cool reader',
                 'coolreader',
                 'bookari',
@@ -95,6 +97,10 @@ class OPDSVersion {
         
         // По умолчанию возвращаем OPDS 1.0 для максимальной совместимости
         // Неизвестные клиенты получат базовый формат
+        // Логируем для отладки, если нужно
+        if (isset($_GET['debug_opds_version'])) {
+            error_log("OPDS Version Detection: User-Agent=" . ($userAgent ?? 'null') . ", Accept=" . ($accept ?? 'null') . ", Detected=1.0");
+        }
         return self::VERSION_1_0;
     }
     

@@ -32,7 +32,7 @@ $opdsCache = OPDSCache::getInstance();
 
 // Создаем ключ кэша для страницы жанров
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_genres_v2_' . OPDSVersion::detect();
+$cacheKey = 'opds_genres_v3_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -94,11 +94,11 @@ while ($g = $gs->fetch(PDO::FETCH_OBJ)) {
 	$entry->setId("tag:genre:" . urlencode($genre));
 	$entry->setTitle($genre);
 	$entry->setUpdated($cdt);
-	$entry->setContent('', 'text');
+	$entry->setContent("Книги в жанре: $genre", 'text');
 	$entry->addLink(new OPDSLink(
 		$webroot . '/opds/listgenres/?id=' . urlencode($genre),
-		'http://opds-spec.org/acquisition',
-		OPDSVersion::getProfile($version, 'acquisition')
+		'subsection',
+		OPDSVersion::getProfile($version, 'navigation')
 	));
 	$feed->addEntry($entry);
 }
