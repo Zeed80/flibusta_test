@@ -30,9 +30,9 @@ class OPDSVersion {
             if (in_array($version, [self::VERSION_1_0, self::VERSION_1_2])) {
                 return $version;
             } else {
-                // Логируем ошибку и используем значение по умолчанию
+                // Логируем ошибку и используем значение по умолчанию (OPDS 1.0)
                 error_log("Invalid OPDS version: $version");
-                return self::VERSION_1_2;
+                return self::VERSION_1_0;
             }
         }
         
@@ -40,33 +40,40 @@ class OPDSVersion {
         if ($userAgent) {
             $userAgentLower = strtolower($userAgent);
             
-            // Клиенты, поддерживающие OPDS 1.2
+            // Клиенты, поддерживающие только OPDS 1.0 (старые клиенты)
+            $opds10Clients = [
+                'fbreader',
+                'moon+ reader',
+                'moonreader',
+                'cool reader',
+                'coolreader',
+                'bookari',
+                'stanza',
+                'marvin'
+            ];
+            
+            // Проверяем старые клиенты сначала
+            foreach ($opds10Clients as $client) {
+                if (strpos($userAgentLower, $client) !== false) {
+                    return self::VERSION_1_0;
+                }
+            }
+            
+            // Клиенты, поддерживающие OPDS 1.2 (новые клиенты)
             $opds12Clients = [
                 'calibre',
                 'koreader',
                 'aldiko',
                 'readium',
                 'thorium',
-                'opds-reader'
-            ];
-            
-            // Клиенты, поддерживающие только OPDS 1.0
-            $opds10Clients = [
-                'fbreader',
-                'moon+ reader',
-                'cool reader',
-                'bookari'
+                'opds-reader',
+                'bluefire reader',
+                'challenger'
             ];
             
             foreach ($opds12Clients as $client) {
                 if (strpos($userAgentLower, $client) !== false) {
                     return self::VERSION_1_2;
-                }
-            }
-            
-            foreach ($opds10Clients as $client) {
-                if (strpos($userAgentLower, $client) !== false) {
-                    return self::VERSION_1_0;
                 }
             }
         }
@@ -79,15 +86,16 @@ class OPDSVersion {
                 return self::VERSION_1_2;
             }
             
-            // Если клиент запрашивает старый формат
+            // Если клиент запрашивает старый формат (application/atom+xml без opds)
             if (strpos($accept, 'application/atom+xml') !== false && 
                 strpos($accept, 'opds') === false) {
                 return self::VERSION_1_0;
             }
         }
         
-        // По умолчанию возвращаем auto для адаптивной генерации
-        return self::VERSION_AUTO;
+        // По умолчанию возвращаем OPDS 1.0 для максимальной совместимости
+        // Неизвестные клиенты получат базовый формат
+        return self::VERSION_1_0;
     }
     
     /**

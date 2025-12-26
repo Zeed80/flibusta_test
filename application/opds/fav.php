@@ -7,12 +7,38 @@ $version = $feed->getVersion();
 
 $uuid = isset($_GET['uuid']) ? $_GET['uuid'] : '';
 if ($uuid == '') {
-	die('uuid required');
+    http_response_code(400);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:fav:missing</id>
+  <title>Ошибка</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:missing_uuid</id>
+    <title>Не указан UUID</title>
+    <summary type="text">Необходимо указать UUID пользователя</summary>
+  </entry>
+</feed>';
+    exit;
 }
 
 // Валидация UUID
 if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $uuid)) {
-	die('invalid uuid');
+    http_response_code(400);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:fav:invalid</id>
+  <title>Ошибка</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:invalid_uuid</id>
+    <title>Некорректный UUID</title>
+    <summary type="text">Указанный UUID имеет некорректный формат</summary>
+  </entry>
+</feed>';
+    exit;
 }
 
 $feed->setId("tag:fav:$uuid");
@@ -22,7 +48,7 @@ $feed->setIcon($webroot . '/favicon.ico');
 
 // Добавляем ссылки
 $feed->addLink(new OPDSLink(
-	$webroot . '/opds-opensearch.xml.php',
+	$webroot . '/opds/opensearch.xml.php',
 	'search',
 	'application/opensearchdescription+xml'
 ));

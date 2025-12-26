@@ -14,7 +14,7 @@ $feed->setIcon($webroot . '/favicon.ico');
 
 // Добавляем ссылки
 $feed->addLink(new OPDSLink(
-	$webroot . '/opds-opensearch.xml.php',
+	$webroot . '/opds/opensearch.xml.php',
 	'search',
 	'application/opensearchdescription+xml'
 ));

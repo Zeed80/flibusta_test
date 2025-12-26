@@ -40,6 +40,19 @@ class OPDSFacet {
     }
     
     /**
+     * Добавляет фасет (алиас для addFacet для обратной совместимости)
+     * 
+     * @param string $term Значение фасета
+     * @param string $label Отображаемое название
+     * @param string $href URL для фильтрации
+     * @param int $count Количество элементов
+     * @param bool $active Является ли фасет активным
+     */
+    public function addFacetValue($term, $label, $href, $count = null, $active = false) {
+        return $this->addFacet($term, $label, $href, $count, $active);
+    }
+    
+    /**
      * Рендерит фасетную группу в XML
      * 
      * @param string $version Версия OPDS

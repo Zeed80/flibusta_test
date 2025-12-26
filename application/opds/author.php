@@ -1,16 +1,55 @@
 <?php
+// Инициализируем кэш OPDS
+$opdsCache = new OPDSCache(null, 3600, true); // 1 час TTL
+
+$author_id = isset($_GET['author_id']) ? (int)$_GET['author_id'] : 0;
+if ($author_id == 0) {
+    http_response_code(400);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:author:missing</id>
+  <title>Ошибка</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:missing_author_id</id>
+    <title>Не указан автор</title>
+    <summary type="text">Необходимо указать идентификатор автора (параметр author_id)</summary>
+  </entry>
+</feed>';
+    exit;
+}
+
+// Получаем параметры для кэша
+$seq_mode = isset($_GET['seq']);
+
+// Получаем параметры для кэша
+$cacheParams = [
+    'author_id' => $author_id,
+    'seq_mode' => $seq_mode ? 1 : 0
+];
+
+// Создаем ключ кэша
+$cacheKey = 'opds_author_' . $opdsCache->getCacheKey($cacheParams);
+
+// Проверяем кэш
+$cachedContent = $opdsCache->get($cacheKey);
+if ($cachedContent !== null) {
+    // Кэш действителен, отправляем с заголовками кэширования
+    $etag = $opdsCache->generateETag($cachedContent);
+    $opdsCache->checkETag($etag);
+    $opdsCache->setCacheHeaders($etag);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo $cachedContent;
+    exit;
+}
+
+// Если кэша нет или устарел, генерируем фид
 header('Content-Type: application/atom+xml; charset=utf-8');
 
 // Создаем фид с автоматическим определением версии
 $feed = OPDSFeedFactory::create();
 $version = $feed->getVersion();
-
-$author_id = isset($_GET['author_id']) ? (int)$_GET['author_id'] : 0;
-if ($author_id == 0) {
-    die('author.php called without specifying id');
-}
-
-$seq_mode = isset($_GET['seq']);
 
 if (! $seq_mode) {  
     $stmt = $dbh->prepare("SELECT a.LastName as LastName, a.MiddleName as MiddleName, a.FirstName as FirstName, a.NickName as NickName,
@@ -37,7 +76,7 @@ if ($a = $stmt->fetchObject()){
         $feed->setIcon($webroot . '/favicon.ico');
         
         $feed->addLink(new OPDSLink(
-            $webroot . '/opds-opensearch.xml.php',
+            $webroot . '/opds/opensearch.xml.php',
             'search',
             'application/opensearchdescription+xml'
         ));
@@ -79,7 +118,7 @@ if ($a = $stmt->fetchObject()){
         $feed->setIcon($webroot . '/favicon.ico');
         
         $feed->addLink(new OPDSLink(
-            $webroot . '/opds-opensearch.xml.php',
+            $webroot . '/opds/opensearch.xml.php',
             'search',
             'application/opensearchdescription+xml'
         ));
@@ -204,7 +243,34 @@ if ($a = $stmt->fetchObject()){
         $feed->addEntry($sequencelessEntry);
     } 
 } else {
-    die("author with id $author_id not found in the data base");
+    http_response_code(404);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:author:not_found</id>
+  <title>Ошибка</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:author_not_found</id>
+    <title>Автор не найден</title>
+    <summary type="text">Автор с идентификатором ' . htmlspecialchars($author_id, ENT_XML1, 'UTF-8') . ' не найден в базе данных</summary>
+  </entry>
+</feed>';
+    exit;
+
+}
+
+// Рендерим фид
+$content = $feed->render();
+
+// Сохраняем в кэш
+$opdsCache->set($cacheKey, $content);
+
+// Устанавливаем заголовки кэширования и отправляем ответ
+$etag = $opdsCache->generateETag($content);
+$opdsCache->setCacheHeaders($etag);
+echo $content;
+?>
 }
 
 echo $feed->render();

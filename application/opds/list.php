@@ -37,10 +37,6 @@ $version = $feed->getVersion();
 // Добавляем версию в параметры кэша
 $cacheParams['version'] = $version;
 
-// Создаем фид с учетом версии
-$feed = OPDSFeedFactory::create(); // Пересоздаем с версией
-$version = $feed->getVersion();
-
 // Определяем параметры фильтрации
 $filter = "deleted='0' ";
 $join = '';

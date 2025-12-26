@@ -15,9 +15,9 @@ class OPDSFeedFactory {
     public static function create($userAgent = null, $accept = null) {
         $version = OPDSVersion::detect($userAgent, $accept);
         
-        // Если версия auto, используем 1.2 по умолчанию
+        // Если версия auto, используем 1.0 по умолчанию для максимальной совместимости
         if ($version === OPDSVersion::VERSION_AUTO) {
-            $version = OPDSVersion::VERSION_1_2;
+            $version = OPDSVersion::VERSION_1_0;
         }
         
         if ($version === OPDSVersion::VERSION_1_0) {

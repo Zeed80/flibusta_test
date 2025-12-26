@@ -23,10 +23,6 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 $feed = OPDSFeedFactory::create();
 $version = $feed->getVersion();
 
-// Создаем фид с учетом версии
-$feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
-
 $feed->setId('tag:root');
 $feed->setTitle('Домашняя библиотека');
 $feed->setUpdated($cdt);

@@ -9,7 +9,20 @@ $q = isset($_GET['q']) ? trim($_GET['q']) : '';
 $get = "?q=" . urlencode($q);
 
 if ($q == '') {
-	die(':(');
+    http_response_code(400);
+    header('Content-Type: application/atom+xml; charset=utf-8');
+    echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:search:book:empty</id>
+  <title>Ошибка поиска</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:empty_query</id>
+    <title>Пустой запрос</title>
+    <summary type="text">Пожалуйста, укажите строку для поиска книг</summary>
+  </entry>
+</feed>';
+    exit;
 }
 
 // Настройка фида
@@ -20,7 +33,7 @@ $feed->setIcon($webroot . '/favicon.ico');
 
 // Добавляем ссылки
 $feed->addLink(new OPDSLink(
-	$webroot . '/opds-opensearch.xml.php',
+	$webroot . '/opds/opensearch.xml.php',
 	'search',
 	'application/opensearchdescription+xml'
 ));
