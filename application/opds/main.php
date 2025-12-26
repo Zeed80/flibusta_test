@@ -36,7 +36,8 @@ if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
 $opdsCache = OPDSCache::getInstance();
 
 // Создаем ключ кэша для главной страницы
-$cacheKey = 'opds_main_' . OPDSVersion::detect();
+// Добавляем версию кэша для принудительного пересоздания при изменениях
+$cacheKey = 'opds_main_v2_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);

@@ -614,11 +614,6 @@ function opds_acquisition_entry($id, $title, $updated, $content, $href, $version
 function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	global $dbh;
 	
-	// Инвалидируем opcache для этого файла (на случай если изменения не применились)
-	if (function_exists('opcache_invalidate')) {
-		opcache_invalidate(__FILE__, true);
-	}
-	
 	// Поддерживаем оба варианта имен полей (BookId и bookid)
 	$bookId = $b->BookId ?? $b->bookid ?? null;
 	$title = $b->Title ?? $b->title ?? 'Без названия';
@@ -634,12 +629,19 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$entry->setUpdated($time);
 	
 	// Аннотация - правильное имя колонки: body (не annotation), bookid (не BookId)
-	$ann = $dbh->prepare("SELECT body FROM libbannotations WHERE bookid=:id LIMIT 1");
-	$ann->bindParam(":id", $bookId, PDO::PARAM_INT);
-	$ann->execute();
-	if ($tmp = $ann->fetch(PDO::FETCH_OBJ)) {
-		$an = $tmp->body ?? '';
-	} else {
+	// ВАЖНО: PostgreSQL чувствителен к регистру, используем bookid (маленькими буквами)
+	try {
+		$ann = $dbh->prepare("SELECT body FROM libbannotations WHERE bookid=:id LIMIT 1");
+		$ann->bindParam(":id", $bookId, PDO::PARAM_INT);
+		$ann->execute();
+		if ($tmp = $ann->fetch(PDO::FETCH_OBJ)) {
+			$an = $tmp->body ?? '';
+		} else {
+			$an = '';
+		}
+	} catch (PDOException $e) {
+		// Логируем ошибку, но продолжаем работу без аннотации
+		error_log("OPDS opds_book_entry: SQL error getting annotation for book $bookId: " . $e->getMessage());
 		$an = '';
 	}
 	

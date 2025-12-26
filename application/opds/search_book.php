@@ -53,7 +53,8 @@ if ($q == '') {
 }
 
 // Создаем ключ кэша для поиска книг
-$cacheKey = 'opds_search_book_' . md5($q) . '_' . OPDSVersion::detect();
+// Добавляем версию кэша для принудительного пересоздания при изменениях
+$cacheKey = 'opds_search_book_v2_' . md5($q) . '_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -168,23 +169,31 @@ while ($b = $books->fetchObject()) {
 	// Исправляем регистр: в SQL используется Body, поэтому обращаемся к Body
 	$body = $b->Body ?? $b->body ?? null;
 	if ($body) {
-		// Для HTML контента используем strip_tags чтобы избежать проблем с незакрытыми тегами
-		// Сначала декодируем HTML entities на случай если они уже экранированы
+		// Полностью очищаем HTML контент от всех тегов и entities
+		// Декодируем HTML entities (может быть несколько уровней экранирования)
 		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-		// Удаляем все HTML теги и оставляем только текст
+		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Двойное декодирование на случай двойного экранирования
+		
+		// Удаляем все HTML теги полностью
 		$body = strip_tags($body);
-		// Заменяем HTML entities на обычные символы
+		
+		// Удаляем оставшиеся HTML entities
 		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+		
 		// Удаляем невалидные XML символы
 		$body = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $body);
+		
 		// Удаляем множественные пробелы и переносы строк
 		$body = preg_replace('/\s+/', ' ', $body);
 		$body = trim($body);
+		
 		// Обрезаем слишком длинный текст
 		if (mb_strlen($body) > 1000) {
 			$body = mb_substr($body, 0, 1000) . '...';
 		}
+		
 		// Используем text вместо html чтобы избежать проблем с XML
+		// ВАЖНО: используем 'text', не 'text/html'!
 		if ($body) {
 			$entry->setContent($body, 'text');
 		}
