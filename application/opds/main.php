@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Инвалидируем opcache для этого файла (на случай если изменения не применились)
+if (function_exists('opcache_invalidate')) {
+    opcache_invalidate(__FILE__, true);
+}
+
 // Включаем обработку ошибок
 error_reporting(E_ALL);
 ini_set('display_errors', '0');

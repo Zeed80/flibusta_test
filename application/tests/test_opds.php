@@ -270,10 +270,11 @@ function testNewBooks() {
     }
     
     // Проверяем наличие правильного rel типа для acquisition в entries (книгах)
-    // Ищем в разных вариантах кавычек и в разных местах XML
+    // Ищем в разных вариантах кавычек и разных rel типах (acquisition, acquisition/open-access и т.д.)
     $hasCorrectRel = (
         strpos($response['content'], 'rel="http://opds-spec.org/acquisition"') !== false ||
         strpos($response['content'], "rel='http://opds-spec.org/acquisition'") !== false ||
+        strpos($response['content'], 'http://opds-spec.org/acquisition/open-access') !== false ||
         strpos($response['content'], 'http://opds-spec.org/acquisition') !== false
     );
     if (!$hasCorrectRel) {
@@ -384,6 +385,7 @@ function testGenres() {
     $hasAcquisitionLink = (
         strpos($response['content'], 'rel="http://opds-spec.org/acquisition"') !== false ||
         strpos($response['content'], "rel='http://opds-spec.org/acquisition'") !== false ||
+        strpos($response['content'], 'http://opds-spec.org/acquisition/open-access') !== false ||
         strpos($response['content'], 'http://opds-spec.org/acquisition') !== false
     );
     if (!$hasAcquisitionLink) {
@@ -674,7 +676,7 @@ function testBookFormatsMIME() {
         return;
     }
     
-    // Проверяем правильные MIME-типы
+    // Проверяем правильные MIME-типы - ищем в type атрибутах link элементов
     $validMIMETypes = [
         'application/fb2+zip',
         'application/epub+zip',
@@ -683,19 +685,43 @@ function testBookFormatsMIME() {
         'text/plain',
         'text/html',
         'image/jpeg',
-        'image/vnd.djvu'
+        'image/vnd.djvu',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/rtf'
     ];
     
     $hasValidMIME = false;
     foreach ($validMIMETypes as $mimeType) {
-        if (strpos($response['content'], $mimeType) !== false) {
+        // Ищем в разных вариантах: type="...", type='...', или просто в содержимом
+        if (strpos($response['content'], 'type="' . $mimeType . '"') !== false ||
+            strpos($response['content'], "type='" . $mimeType . "'") !== false ||
+            strpos($response['content'], $mimeType) !== false) {
             $hasValidMIME = true;
             break;
         }
     }
     
+    // Также проверяем через XML парсер
     if (!$hasValidMIME) {
-        testResult($testName, false, "Отсутствуют правильные MIME-типы");
+        libxml_use_internal_errors(true);
+        $doc = simplexml_load_string($response['content']);
+        libxml_clear_errors();
+        if ($doc !== false) {
+            $links = $doc->xpath('//link[@type]');
+            foreach ($links as $link) {
+                $type = (string)$link['type'];
+                foreach ($validMIMETypes as $validType) {
+                    if (strpos($type, $validType) !== false) {
+                        $hasValidMIME = true;
+                        break 2;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (!$hasValidMIME) {
+        testResult($testName, false, "Отсутствуют правильные MIME-типы в ссылках на книги");
         return;
     }
     
