@@ -40,7 +40,7 @@ docker exec -it CONTAINER_NAME php /application/tests/test_opds.php
 **Примеры:**
 
 ```bash
-# Если контейнер называется flibusta_test-php-fpm-1
+# Если контейнер называется flibusta_test-php-fpm-1 (ваш случай)
 docker exec -it flibusta_test-php-fpm-1 php /application/tests/test_opds.php
 
 # Если контейнер называется flibusta_php-fpm_1
@@ -48,6 +48,11 @@ docker exec -it flibusta_php-fpm_1 php /application/tests/test_opds.php
 
 # Автоматический поиск (если контейнер единственный с php-fpm)
 docker exec -it $(docker ps | grep php-fpm | awk '{print $1}') php /application/tests/test_opds.php
+```
+
+**Или через веб-браузер:**
+```
+http://ваш-ip:27100/tests/test_opds.php
 ```
 
 ## 🔧 Альтернативный способ: через docker-compose
