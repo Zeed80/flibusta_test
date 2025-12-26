@@ -35,7 +35,7 @@ $letters = isset($_GET['letters']) ? trim($_GET['letters']) : '';
 
 // Создаем ключ кэша для индекса авторов
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_authorsindex_v3_' . md5($letters) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_authorsindex_v4_' . md5($letters) . '_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -88,20 +88,30 @@ $length_letters = mb_strlen($letters, 'UTF-8');
 // Исправляем SQL-инъекцию, используя prepared statement
 if ($length_letters > 0) {
 	$pattern = $letters . '_';
+	// Фильтруем на уровне SQL: исключаем пустые LastName и те, что начинаются не с буквы
 	$query = "
-		SELECT UPPER(SUBSTR(LastName, 1, " . ($length_letters + 1) . ")) as alpha, COUNT(*) as cnt
+		SELECT UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . ")) as alpha, COUNT(*) as cnt
 		FROM libavtorname
-		WHERE UPPER(SUBSTR(LastName, 1, " . ($length_letters + 1) . ")) SIMILAR TO :pattern
-		GROUP BY UPPER(SUBSTR(LastName, 1, " . ($length_letters + 1) . "))
+		WHERE LastName IS NOT NULL 
+		AND TRIM(LastName) != ''
+		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
+		AND UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . ")) SIMILAR TO :pattern
+		GROUP BY UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))
 		ORDER BY alpha";
 	$ai = $dbh->prepare($query);
 	$ai->bindParam(":pattern", $pattern);
 	$ai->execute();
 } else {
+	// Фильтруем на уровне SQL: исключаем пустые LastName и те, что начинаются не с буквы
+	// Используем TRIM для удаления пробелов и проверяем, что первый символ - буква
 	$query = "
-		SELECT UPPER(SUBSTR(LastName, 1, 1)) as alpha, COUNT(*) as cnt
+		SELECT UPPER(SUBSTR(TRIM(LastName), 1, 1)) as alpha, COUNT(*) as cnt
 		FROM libavtorname
-		GROUP BY UPPER(SUBSTR(LastName, 1, 1))
+		WHERE LastName IS NOT NULL 
+		AND TRIM(LastName) != ''
+		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
+		GROUP BY UPPER(SUBSTR(TRIM(LastName), 1, 1))
+		HAVING UPPER(SUBSTR(TRIM(LastName), 1, 1)) ~ '^[A-ZА-ЯЁ]'
 		ORDER BY alpha";
 	$ai = $dbh->query($query);
 }
@@ -110,8 +120,15 @@ while ($ach = $ai->fetchObject()) {
 	// НЕ нормализуем алфавитный индекс - сохраняем оригинальный текст (включая кириллицу)
 	$alpha = trim($ach->alpha ?? '');
 	
-	// Пропускаем пустые записи
+	// Пропускаем пустые записи (дополнительная проверка на всякий случай)
 	if (empty($alpha)) {
+		continue;
+	}
+	
+	// Дополнительная проверка: первый символ должен быть буквой
+	// (хотя SQL уже фильтрует, но на всякий случай)
+	$firstChar = mb_substr($alpha, 0, 1, 'UTF-8');
+	if (!preg_match('/^[\p{Cyrillic}\p{Latin}]$/u', $firstChar)) {
 		continue;
 	}
 	

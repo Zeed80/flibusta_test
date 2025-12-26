@@ -64,10 +64,11 @@ $cacheKey = 'opds_author_' . $opdsCache->getCacheKey($cacheParams);
 $cachedContent = $opdsCache->get($cacheKey);
 if ($cachedContent !== null) {
     // Кэш действителен, отправляем с заголовками кэширования
+    // ВАЖНО: устанавливаем Content-Type ДО setCacheHeaders
+    header('Content-Type: application/atom+xml; charset=utf-8');
     $etag = $opdsCache->generateETag($cachedContent);
     $opdsCache->checkETag($etag);
     $opdsCache->setCacheHeaders($etag);
-    header('Content-Type: application/atom+xml; charset=utf-8');
     echo $cachedContent;
     exit;
 }
