@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Инвалидируем opcache для этого файла (на случай если изменения не применились)
+if (function_exists('opcache_invalidate')) {
+    opcache_invalidate(__FILE__, true);
+}
+
 // Включаем обработку ошибок
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
@@ -151,8 +156,10 @@ while ($b = $books->fetchObject()) {
 	
 	// Авторы
 	$as = '';
-	$authors = $dbh->prepare("SELECT lastname, firstname, middlename, AvtorId FROM libavtorname, libavtor 
-		WHERE libavtor.BookId=:bookid AND libavtor.AvtorId=libavtorname.AvtorId ORDER BY LastName");
+	$authors = $dbh->prepare("SELECT libavtorname.lastname, libavtorname.firstname, libavtorname.middlename, libavtorname.AvtorId 
+		FROM libavtorname, libavtor 
+		WHERE libavtor.BookId=:bookid AND libavtor.AvtorId=libavtorname.AvtorId 
+		ORDER BY libavtorname.LastName");
 	$authors->bindParam(":bookid", $bookId, PDO::PARAM_INT);
 	$authors->execute();
 	while ($a = $authors->fetchObject()) {

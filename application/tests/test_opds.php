@@ -260,10 +260,16 @@ function testMainPage() {
         return;
     }
     
-    // Проверяем наличие acquisition ссылок
-    $hasAcquisitionLink = strpos($response['content'], 'opds-spec.org/acquisition') !== false;
-    if (!$hasAcquisitionLink) {
-        testResult($testName, false, "Отсутствует acquisition ссылка (opds-spec.org/acquisition)");
+    // Проверяем наличие навигационных ссылок в entries (для главной страницы это нормально)
+    // Главная страница OPDS - это navigation feed, а не acquisition feed
+    // Проверяем наличие entries с навигационными ссылками
+    $hasNavigationLink = (
+        strpos($response['content'], 'subsection') !== false ||
+        strpos($response['content'], 'opds-spec.org/sort/new') !== false ||
+        strpos($response['content'], 'opds-spec.org/acquisition') !== false
+    );
+    if (!$hasNavigationLink) {
+        testResult($testName, false, "Отсутствуют навигационные ссылки в entries");
         return;
     }
     
