@@ -1447,6 +1447,29 @@ create_certbot_dir() {
     fi
 }
 
+# Проверка доступности порта 80
+check_port_80() {
+    log "${BLUE}Проверка доступности порта 80...${NC}"
+    
+    # Проверяем, занят ли порт 80 на хосте
+    if command -v netstat &> /dev/null; then
+        if netstat -tuln 2>/dev/null | grep -q ":80 "; then
+            log "${YELLOW}⚠ Порт 80 уже используется на хосте${NC}"
+            log "${YELLOW}Убедитесь, что Docker контейнер может использовать порт 80${NC}"
+            return 1
+        fi
+    elif command -v ss &> /dev/null; then
+        if ss -tuln 2>/dev/null | grep -q ":80 "; then
+            log "${YELLOW}⚠ Порт 80 уже используется на хосте${NC}"
+            log "${YELLOW}Убедитесь, что Docker контейнер может использовать порт 80${NC}"
+            return 1
+        fi
+    fi
+    
+    log "${GREEN}✓ Порт 80 свободен${NC}"
+    return 0
+}
+
 # Получение SSL сертификата
 get_ssl_certificate() {
     local domain=$1
@@ -1459,8 +1482,27 @@ get_ssl_certificate() {
     
     log "${BLUE}Получение SSL сертификата для домена: $domain${NC}"
     
+    # Проверяем доступность порта 80
+    check_port_80
+    
     # Создаем директорию для certbot
     create_certbot_dir
+    
+    # Проверяем, что nginx доступен и отвечает на запросы
+    log "${BLUE}Проверка доступности nginx...${NC}"
+    local compose_cmd=$(get_compose_cmd)
+    if ! $compose_cmd ps webserver 2>/dev/null | grep -q "Up"; then
+        log "${RED}✗ Контейнер webserver не запущен${NC}"
+        log "${YELLOW}Запустите контейнеры: $compose_cmd up -d${NC}"
+        return 1
+    fi
+    
+    # Проверяем доступность ACME challenge endpoint
+    sleep 2
+    if ! curl -s -o /dev/null -w "%{http_code}" "http://localhost/.well-known/acme-challenge/test" 2>/dev/null | grep -q "404\|403"; then
+        log "${YELLOW}⚠ ACME challenge endpoint может быть недоступен${NC}"
+        log "${YELLOW}Проверьте конфигурацию nginx и доступность порта 80${NC}"
+    fi
     
     # Параметры для certbot
     local certbot_args="--webroot -w /var/www/certbot -d $domain --non-interactive --agree-tos"
@@ -1472,15 +1514,24 @@ get_ssl_certificate() {
     fi
     
     # Получаем сертификат
+    log "${BLUE}Запрос сертификата у Let's Encrypt...${NC}"
+    log "${YELLOW}Это может занять несколько секунд...${NC}"
+    
     if sudo certbot certonly $certbot_args 2>&1 | tee -a "$LOG_FILE"; then
         log "${GREEN}✓ SSL сертификат получен для домена: $domain${NC}"
         return 0
     else
         log "${RED}✗ Ошибка при получении SSL сертификата${NC}"
-        log "${YELLOW}Убедитесь, что:${NC}"
-        log "${YELLOW}  1. Домен указывает на IP этого сервера${NC}"
-        log "${YELLOW}  2. Порт 80 доступен из интернета${NC}"
-        log "${YELLOW}  3. Nginx запущен и доступен${NC}"
+        log "${YELLOW}Возможные причины:${NC}"
+        log "${YELLOW}  1. Домен не указывает на IP этого сервера (проверьте DNS)${NC}"
+        log "${YELLOW}  2. Порт 80 не доступен из интернета (проверьте firewall и проброс портов)${NC}"
+        log "${YELLOW}  3. Nginx не отвечает на запросы к /.well-known/acme-challenge/${NC}"
+        log "${YELLOW}  4. Другой веб-сервер использует порт 80${NC}"
+        log "${YELLOW}${NC}"
+        log "${YELLOW}Проверьте:${NC}"
+        log "${YELLOW}  - curl http://$domain/.well-known/acme-challenge/test${NC}"
+        log "${YELLOW}  - docker-compose ps webserver${NC}"
+        log "${YELLOW}  - sudo netstat -tuln | grep :80${NC}"
         return 1
     fi
 }
@@ -1734,12 +1785,23 @@ setup_https() {
     # Обновление домена в nginx конфигурации
     update_nginx_domain "$DOMAIN"
     
-    # Перезапуск nginx для применения изменений (если контейнеры уже запущены)
+    # Перезапуск контейнеров для применения изменений (включая проброс порта 80)
     local compose_cmd=$(get_compose_cmd)
     if $compose_cmd ps webserver 2>/dev/null | grep -q "Up"; then
-        log "${BLUE}Перезапуск nginx...${NC}"
-        $compose_cmd restart webserver >/dev/null 2>&1
+        log "${BLUE}Перезапуск контейнеров для применения изменений (проброс порта 80)...${NC}"
+        $compose_cmd down webserver >/dev/null 2>&1
+        sleep 2
+        $compose_cmd up -d webserver >/dev/null 2>&1
         sleep 5
+        
+        # Проверяем, что контейнер запустился
+        if ! $compose_cmd ps webserver 2>/dev/null | grep -q "Up"; then
+            log "${RED}✗ Не удалось перезапустить контейнер webserver${NC}"
+            log "${YELLOW}Возможно, порт 80 уже занят. Проверьте: sudo netstat -tuln | grep :80${NC}"
+            return 1
+        fi
+        
+        log "${GREEN}✓ Контейнер webserver перезапущен${NC}"
     fi
     
     # Получение SSL сертификата
