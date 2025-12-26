@@ -583,8 +583,8 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$entry->setUpdated($b->time ?: date('c'));
 	
 	// Аннотация
-	$ann = $dbh->prepare("SELECT body annotation FROM libbannotations WHERE bookid=:id LIMIT 1");
-	$ann->bindParam(":id", $b->bookid);
+	$ann = $dbh->prepare("SELECT annotation FROM libbannotations WHERE BookId=:id LIMIT 1");
+	$ann->bindParam(":id", $b->BookId);
 	$ann->execute();
 	if ($tmp = $ann->fetch()) {
 		$an = $tmp->annotation;
@@ -595,8 +595,8 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	// Жанры
 	$genres = $dbh->prepare("SELECT genrecode, GenreId, GenreDesc FROM libgenre 
 		JOIN libgenrelist USING(GenreId)
-		WHERE bookid=:id");
-	$genres->bindParam(":id", $b->bookid);
+		WHERE BookId=:id");
+	$genres->bindParam(":id", $b->BookId);
 	$genres->execute();
 	while ($g = $genres->fetch()) {
 		$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc) : $g->genredesc;
@@ -613,7 +613,7 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$seq = $dbh->prepare("SELECT SeqId, SeqName, SeqNumb FROM libseq
 		JOIN libseqname USING(SeqId)
 		WHERE BookId=:id");
-	$seq->bindParam(":id", $b->bookid);
+	$seq->bindParam(":id", $b->BookId);
 	$seq->execute();
 	while ($s = $seq->fetch()) {
 		$ssq = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
@@ -637,8 +637,8 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$au = $dbh->prepare("SELECT AvtorId, LastName, FirstName, nickname, middlename, File FROM libavtor a
 		LEFT JOIN libavtorname USING(AvtorId)
 		LEFT JOIN libapics USING(AvtorId)
-		WHERE a.bookid=:id");
-	$au->bindParam(":id", $b->bookid);
+		WHERE a.BookId=:id");
+	$au->bindParam(":id", $b->BookId);
 	$au->execute();
 	while ($a = $au->fetch()) {
 		$authorName = trim("$a->lastname $a->firstname $a->middlename");
