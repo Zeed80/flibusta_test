@@ -1,5 +1,5 @@
 <?php
-$search = $_GET['by'];
+$search = isset($_GET['by']) ? $_GET['by'] : '';
 switch ($search) {
 	case 'author':
 		include('search_author.php');

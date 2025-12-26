@@ -628,12 +628,12 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 	$entry->setTitle($title);
 	$entry->setUpdated($time);
 	
-	// Аннотация
-	$ann = $dbh->prepare("SELECT annotation FROM libbannotations WHERE BookId=:id LIMIT 1");
+	// Аннотация - правильное имя колонки: body (не annotation)
+	$ann = $dbh->prepare("SELECT body FROM libbannotations WHERE bookid=:id LIMIT 1");
 	$ann->bindParam(":id", $bookId, PDO::PARAM_INT);
 	$ann->execute();
 	if ($tmp = $ann->fetch(PDO::FETCH_OBJ)) {
-		$an = $tmp->annotation ?? '';
+		$an = $tmp->body ?? '';
 	} else {
 		$an = '';
 	}

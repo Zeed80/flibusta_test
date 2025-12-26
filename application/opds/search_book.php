@@ -169,17 +169,21 @@ while ($b = $books->fetchObject()) {
 	$body = $b->Body ?? $b->body ?? null;
 	if ($body) {
 		// Для HTML контента используем strip_tags чтобы избежать проблем с незакрытыми тегами
-		// Или можно использовать более агрессивную очистку
 		// Удаляем все HTML теги и оставляем только текст
 		$body = strip_tags($body);
 		// Удаляем невалидные XML символы
 		$body = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $body);
+		// Удаляем множественные пробелы и переносы строк
+		$body = preg_replace('/\s+/', ' ', $body);
+		$body = trim($body);
 		// Обрезаем слишком длинный текст
 		if (mb_strlen($body) > 1000) {
 			$body = mb_substr($body, 0, 1000) . '...';
 		}
 		// Используем text вместо html чтобы избежать проблем с XML
-		$entry->setContent($body, 'text');
+		if ($body) {
+			$entry->setContent($body, 'text');
+		}
 	}
 	
 	// Ссылки на изображения
