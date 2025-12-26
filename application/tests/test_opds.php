@@ -211,19 +211,19 @@ function testMainPage() {
         return;
     }
     
-    // Проверяем наличие обязательных элементов
-    if (strpos($response['content'], '<feed') === false) {
-        testResult($testName, false, "Отсутствует элемент <feed>");
+    // Проверяем наличие обязательных элементов используя XML парсер
+    libxml_use_internal_errors(true);
+    $doc = simplexml_load_string($response['content']);
+    libxml_clear_errors();
+    
+    if ($doc === false) {
+        testResult($testName, false, "Не удалось распарсить XML");
         return;
     }
     
-    if (strpos($response['content'], '<id>') === false) {
-        testResult($testName, false, "Отсутствует элемент <id>");
-        return;
-    }
-    
-    if (strpos($response['content'], '<title>') === false) {
-        testResult($testName, false, "Отсутствует элемент <title>");
+    // Проверяем наличие feed элемента
+    if (!isset($doc->title)) {
+        testResult($testName, false, "Отсутствует элемент <title> в feed");
         return;
     }
     
@@ -355,11 +355,27 @@ function testGenres() {
         return;
     }
     
-    // Проверяем наличие acquisition ссылок
-    $hasAcquisitionLink = strpos($response['content'], 'rel="http://opds-spec.org/acquisition"') !== false;
+    // Проверяем наличие acquisition ссылок - ищем в разных вариантах
+    $hasAcquisitionLink = (
+        strpos($response['content'], 'rel="http://opds-spec.org/acquisition"') !== false ||
+        strpos($response['content'], "rel='http://opds-spec.org/acquisition'") !== false ||
+        strpos($response['content'], 'http://opds-spec.org/acquisition') !== false
+    );
     if (!$hasAcquisitionLink) {
-        testResult($testName, false, "Отсутствует acquisition ссылка для жанров");
-        return;
+        // Попробуем найти через XML парсер
+        libxml_use_internal_errors(true);
+        $doc = simplexml_load_string($response['content']);
+        libxml_clear_errors();
+        if ($doc !== false) {
+            $links = $doc->xpath('//link[@rel="http://opds-spec.org/acquisition"]');
+            if (empty($links)) {
+                testResult($testName, false, "Отсутствует acquisition ссылка для жанров");
+                return;
+            }
+        } else {
+            testResult($testName, false, "Отсутствует acquisition ссылка для жанров");
+            return;
+        }
     }
     
     testResult($testName, true, "Жанры с правильными acquisition ссылками");

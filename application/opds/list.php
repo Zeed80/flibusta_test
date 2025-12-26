@@ -283,13 +283,21 @@ try {
 	$books->execute();
 
 	while ($b = $books->fetch(PDO::FETCH_OBJ)) {
-		$entry = opds_book_entry($b, $webroot, $version);
-		if ($entry) {
-			$feed->addEntry($entry);
+		try {
+			$entry = opds_book_entry($b, $webroot, $version);
+			if ($entry) {
+				$feed->addEntry($entry);
+			}
+		} catch (Exception $e) {
+			error_log("OPDS list.php: Error creating entry for book " . ($b->BookId ?? $b->bookid ?? 'unknown') . ": " . $e->getMessage());
+			// Продолжаем обработку других книг
+			continue;
 		}
 	}
 } catch (PDOException $e) {
 	error_log("OPDS list.php: SQL error in books query: " . $e->getMessage());
+	error_log("OPDS list.php: Query: SELECT b.* FROM libbook b $join WHERE $filter ORDER BY $orderby LIMIT :limit OFFSET :offset");
+	error_log("OPDS list.php: Params: gid=" . ($gid ?? 'null') . ", sid=" . ($sid ?? 'null') . ", aid=" . ($aid ?? 'null'));
 	http_response_code(500);
 	header('Content-Type: application/atom+xml; charset=utf-8');
 	echo '<?xml version="1.0" encoding="utf-8"?>
@@ -300,7 +308,24 @@ try {
   <entry>
     <id>tag:error:books</id>
     <title>Ошибка получения книг</title>
-    <summary type="text">Не удалось выполнить запрос к базе данных</summary>
+    <summary type="text">Не удалось выполнить запрос к базе данных: ' . htmlspecialchars($e->getMessage(), ENT_XML1, 'UTF-8') . '</summary>
+  </entry>
+</feed>';
+	exit;
+} catch (Exception $e) {
+	error_log("OPDS list.php: Unexpected error: " . $e->getMessage());
+	error_log("OPDS list.php: Stack trace: " . $e->getTraceAsString());
+	http_response_code(500);
+	header('Content-Type: application/atom+xml; charset=utf-8');
+	echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>tag:error:unexpected</id>
+  <title>Неожиданная ошибка</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:unexpected</id>
+    <title>Ошибка обработки</title>
+    <summary type="text">Произошла неожиданная ошибка при обработке запроса</summary>
   </entry>
 </feed>';
 	exit;

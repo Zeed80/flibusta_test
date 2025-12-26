@@ -140,11 +140,21 @@ class OPDSEntry {
         
         if ($this->content) {
             $xml .= "\n <content type=\"" . htmlspecialchars($this->contentType, ENT_XML1, 'UTF-8') . "\">";
-            if ($this->contentType === 'text' || $this->contentType === 'html') {
-                // Экранируем HTML контент, заменяя невалидные XML символы
+            if ($this->contentType === 'text' || $this->contentType === 'html' || $this->contentType === 'text/html') {
+                // Для HTML контента используем более агрессивную очистку
                 $content = $this->content;
-                // Удаляем невалидные XML символы (кроме разрешенных)
+                
+                // Удаляем невалидные XML символы
                 $content = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $content);
+                
+                // Нормализуем незакрытые теги
+                $content = preg_replace('/<br\s*>/i', '<br/>', $content);
+                $content = preg_replace('/<hr\s*>/i', '<hr/>', $content);
+                $content = preg_replace('/<img\s+([^>]*?)(?<!\s\/)>/i', '<img $1 />', $content);
+                
+                // Удаляем незакрытые теги (кроме самозакрывающихся)
+                $content = preg_replace('/<(?!area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)[^>]+>(?![^<]*<\/[^>]+>)/i', '', $content);
+                
                 // Экранируем специальные символы XML
                 $content = htmlspecialchars($content, ENT_XML1 | ENT_QUOTES, 'UTF-8', false);
                 $xml .= $content;
