@@ -35,7 +35,7 @@ $letters = isset($_GET['letters']) ? trim($_GET['letters']) : '';
 
 // Создаем ключ кэша для индекса авторов
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_authorsindex_v2_' . md5($letters) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_authorsindex_v3_' . md5($letters) . '_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -107,20 +107,25 @@ if ($length_letters > 0) {
 }
 
 while ($ach = $ai->fetchObject()) {
-	// Нормализуем алфавитный индекс
-	$normalizedAlpha = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($ach->alpha) : $ach->alpha;
+	// НЕ нормализуем алфавитный индекс - сохраняем оригинальный текст (включая кириллицу)
+	$alpha = trim($ach->alpha ?? '');
+	
+	// Пропускаем пустые записи
+	if (empty($alpha)) {
+		continue;
+	}
 	
 	if ($ach->cnt > 500) {
-		$url = $webroot . '/opds/authorsindex?letters=' . urlencode($normalizedAlpha);
+		$url = $webroot . '/opds/authorsindex?letters=' . urlencode($alpha);
 	} else {
-		$url = $webroot . '/opds/search?by=author&q=' . urlencode($normalizedAlpha);
+		$url = $webroot . '/opds/search?by=author&q=' . urlencode($alpha);
 	}
 	
 	$entry = new OPDSEntry();
-	$entry->setId("tag:authors:" . htmlspecialchars($normalizedAlpha, ENT_XML1, 'UTF-8'));
-	$entry->setTitle($normalizedAlpha);
+	$entry->setId("tag:authors:" . htmlspecialchars($alpha, ENT_XML1, 'UTF-8'));
+	$entry->setTitle($alpha);
 	$entry->setUpdated($cdt);
-	$entry->setContent("$ach->cnt авторов на " . $normalizedAlpha, 'text');
+	$entry->setContent("$ach->cnt авторов на " . $alpha, 'text');
 	
 	// Используем правильный rel для OPDS
 	if ($ach->cnt > 500) {

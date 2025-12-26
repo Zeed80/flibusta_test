@@ -117,13 +117,15 @@ $authors->execute();
 
 while ($a = $authors->fetch()) {
     if ($a->cnt > 0) {
-        // Нормализуем имя автора
+        // НЕ нормализуем имя автора - сохраняем оригинальный текст (включая кириллицу)
         $authorName = trim("$a->lastname $a->firstname $a->middlename $a->nickname");
-        $normalizedAuthorName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
+        if (empty($authorName)) {
+            continue;
+        }
         
         $entry = new OPDSEntry();
         $entry->setId("tag:author:$a->avtorid");
-        $entry->setTitle($normalizedAuthorName);
+        $entry->setTitle($authorName);
         $entry->setUpdated($cdt);
         $entry->setContent("$a->cnt книг", 'text');
         $entry->addLink(new OPDSLink(

@@ -95,7 +95,8 @@ $stmt->execute();
 if ($a = $stmt->fetchObject()){
     $author_name_raw = ($a->nickname !='')?"$a->firstname $a->middlename $a->lastname ($a->nickname)"
                             :"$a->firstname  $a->middlename $a->lastname";
-    $author_name = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($author_name_raw) : $author_name_raw;
+    // НЕ нормализуем имя автора - сохраняем оригинальный текст (включая кириллицу)
+    $author_name = trim($author_name_raw);
    
     if ($seq_mode) { // show list of sequences with current author's works
         $feed->setId("tag:author:$author_id:sequences");
@@ -127,10 +128,14 @@ if ($a = $stmt->fetchObject()){
         $sequences->bindParam(":aid", $author_id, PDO::PARAM_INT);
         $sequences->execute();
         while($seq = $sequences->fetchObject()){
-            $normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($seq->seqname ?? '') : ($seq->seqname ?? '');
+            // НЕ нормализуем название серии - сохраняем оригинальный текст (включая кириллицу)
+            $seqName = trim($seq->seqname ?? '');
+            if (empty($seqName)) {
+                continue;
+            }
             $entry = new OPDSEntry();
             $entry->setId("tag:seq:$seq->seqid");
-            $entry->setTitle($normalizedSeqName);
+            $entry->setTitle($seqName);
             $entry->setUpdated($cdt);
             $entry->addLink(new OPDSLink(
                 $webroot . '/opds/list?seq_id=' . $seq->seqid,

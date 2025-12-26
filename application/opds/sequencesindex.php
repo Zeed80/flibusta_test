@@ -35,7 +35,7 @@ $letters = isset($_GET['letters']) ? trim($_GET['letters']) : '';
 
 // Создаем ключ кэша для индекса серий
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_sequencesindex_v2_' . md5($letters) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_sequencesindex_v3_' . md5($letters) . '_' . OPDSVersion::detect();
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -106,17 +106,22 @@ if ($length_letters > 0) {
 }
 
 while ($ach = $ai->fetchObject()) {
-	// Нормализуем алфавитный индекс
-	$normalizedAlpha = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($ach->alpha) : $ach->alpha;
+	// НЕ нормализуем алфавитный индекс - сохраняем оригинальный текст (включая кириллицу)
+	$alpha = trim($ach->alpha ?? '');
+	
+	// Пропускаем пустые записи
+	if (empty($alpha)) {
+		continue;
+	}
 	
 	if ($ach->cnt > 30) {
 		$entry = new OPDSEntry();
-		$entry->setId("tag:sequences:" . urlencode($normalizedAlpha));
-		$entry->setTitle($normalizedAlpha);
+		$entry->setId("tag:sequences:" . urlencode($alpha));
+		$entry->setTitle($alpha);
 		$entry->setUpdated($cdt);
-		$entry->setContent("$ach->cnt книжных серий на " . $normalizedAlpha, 'text');
+		$entry->setContent("$ach->cnt книжных серий на " . $alpha, 'text');
 		$entry->addLink(new OPDSLink(
-			$webroot . '/opds/sequencesindex?letters=' . urlencode($normalizedAlpha),
+			$webroot . '/opds/sequencesindex?letters=' . urlencode($alpha),
 			'subsection',
 			OPDSVersion::getProfile($version, 'acquisition')
 		));
@@ -127,15 +132,18 @@ while ($ach = $ai->fetchObject()) {
 				from libseqname 
 				where UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) = :pattern
 				ORDER BY UPPER(SeqName)");
-		$sq->bindParam(":pattern", $ach->alpha);
+		$sq->bindParam(":pattern", $alpha);
 		$sq->execute();
 		while($s = $sq->fetchObject()){
-			// Нормализуем название серии
-			$normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname) : $s->seqname;
+			// НЕ нормализуем название серии - сохраняем оригинальный текст (включая кириллицу)
+			$seqName = trim($s->seqname ?? '');
+			if (empty($seqName)) {
+				continue;
+			}
 			
 			$entry = new OPDSEntry();
 			$entry->setId("tag:sequence:$s->seqid");
-			$entry->setTitle($normalizedSeqName);
+			$entry->setTitle($seqName);
 			$entry->setUpdated($cdt);
 			$entry->setContent('', 'text');
 			$entry->addLink(new OPDSLink(

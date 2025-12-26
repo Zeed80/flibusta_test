@@ -79,8 +79,9 @@ class OPDSEntry {
     }
     
     public function addAuthor($name, $uri = null) {
-        $normalizedName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($name) : $name;
-        $this->authors[] = ['name' => $normalizedName, 'uri' => $uri];
+        // НЕ нормализуем имя автора - сохраняем оригинальный текст (включая кириллицу)
+        // normalize_text_for_opds может удалить кириллицу
+        $this->authors[] = ['name' => $name, 'uri' => $uri];
         return $this;
     }
     

@@ -86,8 +86,9 @@ if (isset($_GET['genre_id'])) {
 	$stmt->execute();
 	$g = $stmt->fetch(PDO::FETCH_OBJ);
 	if ($g) {
-		$normalizedGenreDesc = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($g->genredesc ?? '') : ($g->genredesc ?? '');
-		$title = "в жанре " . ($g->genremeta ?? '') . ": $normalizedGenreDesc";
+		// НЕ нормализуем описание жанра - сохраняем оригинальный текст (включая кириллицу)
+		$genreDesc = trim($g->genredesc ?? '');
+		$title = "в жанре " . ($g->genremeta ?? '') . ": $genreDesc";
 	} else {
 		$title = "в жанре (не найден)";
 	}
@@ -104,8 +105,9 @@ if (isset($_GET['seq_id'])) {
 	$stmt->execute();
 	$s = $stmt->fetch(PDO::FETCH_OBJ);
 	if ($s) {
-		$normalizedSeqName = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($s->seqname ?? '') : ($s->seqname ?? '');
-		$title = "в сборнике $normalizedSeqName";
+		// НЕ нормализуем название серии - сохраняем оригинальный текст (включая кириллицу)
+		$seqName = trim($s->seqname ?? '');
+		$title = "в сборнике $seqName";
 	} else {
 		$title = "в сборнике (не найден)";
 	}
@@ -139,7 +141,8 @@ if (isset($_GET['author_id'])) {
 	if ($a) {
 		$authorName = (!empty($a->nickname)) ? "$a->firstname $a->middlename $a->lastname ($a->nickname)"
 			: "$a->firstname  $a->middlename $a->lastname";
-		$title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($authorName) : $authorName;
+		// НЕ нормализуем имя автора - сохраняем оригинальный текст (включая кириллицу)
+		$title = trim($authorName);
 	} else {
 		$title = "автора (не найден)";
 	}
