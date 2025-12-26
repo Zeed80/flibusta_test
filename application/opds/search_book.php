@@ -100,7 +100,7 @@ $feed->addLink(new OPDSLink(
 try {
 	$searchParam = '%' . $q . '%';
 	$books = $dbh->prepare("SELECT DISTINCT b.BookId, b.Title as BookTitle, b.time, b.lang, b.year, b.filetype, b.filesize,
-			(SELECT Body FROM libbannotations WHERE BookId=b.BookId LIMIT 1) as Body
+			(SELECT body FROM libbannotations WHERE bookid=b.BookId LIMIT 1) as Body
 			FROM libbook b
 			LEFT JOIN libavtor USING(BookId)
 			LEFT JOIN libavtorname USING(AvtorId)
@@ -110,7 +110,7 @@ try {
 				b.Title ILIKE :q 
 				OR libavtorname.LastName ILIKE :q 
 				OR libavtorname.FirstName ILIKE :q
-				OR libbannotations.Body ILIKE :q
+				OR libbannotations.body ILIKE :q
 			)
 			GROUP BY b.BookId, b.Title, b.time, b.lang, b.year, b.filetype, b.filesize, Body
 			ORDER BY b.time DESC

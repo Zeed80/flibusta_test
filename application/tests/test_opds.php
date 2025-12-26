@@ -227,12 +227,37 @@ function testMainPage() {
     }
     
     // Проверяем наличие feed элемента title
-    if (!isset($doc->title) || empty((string)$doc->title)) {
-        // Также проверяем через строковый поиск на случай проблем с парсером
-        if (strpos($response['content'], '<title>') === false && strpos($response['content'], '<title ') === false) {
-            testResult($testName, false, "Отсутствует элемент <title> в feed");
-            return;
+    // SimpleXML может не найти title из-за namespace, поэтому используем несколько способов
+    $hasTitle = false;
+    
+    // Способ 1: Прямой доступ (может не работать с namespace)
+    if (isset($doc->title) && !empty((string)$doc->title)) {
+        $hasTitle = true;
+    }
+    
+    // Способ 2: Доступ через children() для обхода namespace
+    $namespaces = $doc->getNamespaces(true);
+    foreach ($namespaces as $prefix => $uri) {
+        $children = $doc->children($uri);
+        if (isset($children->title) && !empty((string)$children->title)) {
+            $hasTitle = true;
+            break;
         }
+    }
+    
+    // Способ 3: Строковый поиск (надежный способ)
+    if (!$hasTitle) {
+        if (preg_match('/<title[^>]*>(.*?)<\/title>/s', $response['content'], $matches)) {
+            $titleContent = trim($matches[1]);
+            if (!empty($titleContent)) {
+                $hasTitle = true;
+            }
+        }
+    }
+    
+    if (!$hasTitle) {
+        testResult($testName, false, "Отсутствует элемент <title> в feed");
+        return;
     }
     
     // Проверяем наличие acquisition ссылок
