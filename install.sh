@@ -1472,25 +1472,104 @@ create_certbot_dir() {
 check_port_80() {
     log "${BLUE}Проверка доступности порта 80...${NC}"
     
+    local port_in_use=0
+    local process_info=""
+    
     # Проверяем, занят ли порт 80 на хосте (кроме Docker)
     if command -v netstat &> /dev/null; then
-        local port_80_usage=$(netstat -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy" | wc -l)
-        if [ "$port_80_usage" -gt 0 ]; then
-            log "${YELLOW}⚠ Порт 80 используется (кроме Docker):${NC}"
-            netstat -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy"
-            log "${YELLOW}Убедитесь, что Docker контейнер может использовать порт 80${NC}"
+        local port_80_info=$(netstat -tulnp 2>/dev/null | grep ":80 " | grep -v "docker-proxy" || true)
+        if [ -n "$port_80_info" ]; then
+            port_in_use=1
+            process_info="$port_80_info"
         fi
     elif command -v ss &> /dev/null; then
-        local port_80_usage=$(ss -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy" | wc -l)
-        if [ "$port_80_usage" -gt 0 ]; then
-            log "${YELLOW}⚠ Порт 80 используется (кроме Docker):${NC}"
-            ss -tuln 2>/dev/null | grep ":80 " | grep -v "docker-proxy"
-            log "${YELLOW}Убедитесь, что Docker контейнер может использовать порт 80${NC}"
+        local port_80_info=$(ss -tulnp 2>/dev/null | grep ":80 " | grep -v "docker-proxy" || true)
+        if [ -n "$port_80_info" ]; then
+            port_in_use=1
+            process_info="$port_80_info"
         fi
     fi
     
-    log "${GREEN}✓ Проверка порта 80 завершена${NC}"
+    if [ "$port_in_use" -eq 1 ]; then
+        log "${YELLOW}⚠ Порт 80 уже используется:${NC}"
+        echo "$process_info" | sed 's/^/  /'
+        log "${YELLOW}${NC}"
+        log "${YELLOW}Для получения SSL сертификата порт 80 должен быть доступен.${NC}"
+        log "${YELLOW}Варианты решения:${NC}"
+        log "${YELLOW}  1. Остановите процесс, использующий порт 80${NC}"
+        log "${YELLOW}  2. Используйте DNS challenge вместо HTTP challenge${NC}"
+        log "${YELLOW}  3. Настройте reverse proxy для перенаправления запросов${NC}"
+        log "${YELLOW}${NC}"
+        log "${YELLOW}Чтобы найти процесс:${NC}"
+        if command -v lsof &> /dev/null; then
+            log "${YELLOW}  sudo lsof -i :80${NC}"
+        elif command -v fuser &> /dev/null; then
+            log "${YELLOW}  sudo fuser 80/tcp${NC}"
+        fi
+        return 1
+    fi
+    
+    log "${GREEN}✓ Порт 80 свободен${NC}"
     return 0
+}
+
+# Освобождение порта 80 (с подтверждением)
+free_port_80() {
+    log "${BLUE}Попытка освободить порт 80...${NC}"
+    
+    local pid=""
+    
+    # Находим PID процесса, использующего порт 80
+    if command -v lsof &> /dev/null; then
+        pid=$(sudo lsof -ti :80 2>/dev/null | head -1)
+    elif command -v fuser &> /dev/null; then
+        pid=$(sudo fuser 80/tcp 2>/dev/null | awk '{print $1}' | head -1)
+    elif command -v netstat &> /dev/null; then
+        pid=$(netstat -tulnp 2>/dev/null | grep ":80 " | grep -v "docker-proxy" | awk '{print $7}' | cut -d'/' -f1 | head -1)
+    fi
+    
+    if [ -z "$pid" ] || [ "$pid" = "-" ]; then
+        log "${YELLOW}⚠ Не удалось определить процесс, использующий порт 80${NC}"
+        return 1
+    fi
+    
+    log "${YELLOW}Найден процесс с PID $pid, использующий порт 80${NC}"
+    log "${YELLOW}Информация о процессе:${NC}"
+    if [ -f "/proc/$pid/cmdline" ]; then
+        local cmdline=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || echo "недоступно")
+        log "${YELLOW}  Команда: $cmdline${NC}"
+    fi
+    
+    log "${YELLOW}${NC}"
+    log "${YELLOW}ВНИМАНИЕ: Остановка этого процесса может повлиять на другие сервисы!${NC}"
+    log "${YELLOW}Продолжить? (y/N): ${NC}"
+    read -r confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log "${YELLOW}Отменено пользователем${NC}"
+        return 1
+    fi
+    
+    # Останавливаем процесс
+    if sudo kill "$pid" 2>/dev/null; then
+        sleep 2
+        # Проверяем, освободился ли порт
+        if ! check_port_80 >/dev/null 2>&1; then
+            log "${YELLOW}⚠ Процесс остановлен, но порт все еще занят. Попытка принудительной остановки...${NC}"
+            sudo kill -9 "$pid" 2>/dev/null || true
+            sleep 1
+        fi
+        
+        if check_port_80 >/dev/null 2>&1; then
+            log "${GREEN}✓ Порт 80 освобожден${NC}"
+            return 0
+        else
+            log "${RED}✗ Не удалось освободить порт 80${NC}"
+            return 1
+        fi
+    else
+        log "${RED}✗ Не удалось остановить процесс $pid${NC}"
+        return 1
+    fi
 }
 
 # Диагностика ACME challenge
@@ -1580,7 +1659,16 @@ get_ssl_certificate() {
     log "${BLUE}Получение SSL сертификата для домена: $domain${NC}"
     
     # Проверяем доступность порта 80
-    check_port_80
+    if ! check_port_80; then
+        log "${YELLOW}⚠ Порт 80 занят. Попытка освободить...${NC}"
+        if ! free_port_80; then
+            log "${RED}✗ Не удалось освободить порт 80${NC}"
+            log "${YELLOW}Попробуйте освободить порт 80 вручную или используйте DNS challenge${NC}"
+            log "${YELLOW}Для DNS challenge используйте:${NC}"
+            log "${YELLOW}  sudo certbot certonly --manual --preferred-challenges dns -d $domain${NC}"
+            return 1
+        fi
+    fi
     
     # Создаем директорию для certbot
     create_certbot_dir
@@ -1895,26 +1983,75 @@ setup_https() {
     # Открытие портов в firewall
     setup_firewall_ports
     
+    # Проверка и настройка порта 80
+    log "${BLUE}Проверка порта 80 для получения SSL сертификата...${NC}"
+    if ! check_port_80; then
+        log "${YELLOW}⚠ Порт 80 занят. Попытка освободить...${NC}"
+        if free_port_80; then
+            log "${GREEN}✓ Порт 80 освобожден${NC}"
+        else
+            log "${YELLOW}⚠ Не удалось освободить порт 80 автоматически${NC}"
+            log "${YELLOW}Настройка переменной FLIBUSTA_HTTP_PORT для использования другого порта...${NC}"
+            
+            # Предлагаем использовать другой порт или пропустить проброс порта 80
+            log "${YELLOW}Варианты:${NC}"
+            log "${YELLOW}  1. Освободите порт 80 вручную и перезапустите установку${NC}"
+            log "${YELLOW}  2. Используйте DNS challenge для получения сертификата${NC}"
+            log "${YELLOW}  3. Продолжить без проброса порта 80 (сертификат может не быть получен)${NC}"
+            log "${YELLOW}${NC}"
+            log "${YELLOW}Продолжить без проброса порта 80? (y/N): ${NC}"
+            read -r continue_choice
+            if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
+                log "${YELLOW}Установка HTTPS отменена${NC}"
+                return 1
+            fi
+            
+            # Устанавливаем FLIBUSTA_HTTP_PORT в пустое значение, чтобы не пробрасывать порт 80
+            if grep -q "^FLIBUSTA_HTTP_PORT=" .env 2>/dev/null; then
+                sed -i "s|^FLIBUSTA_HTTP_PORT=.*|FLIBUSTA_HTTP_PORT=|" .env
+            else
+                echo "FLIBUSTA_HTTP_PORT=" >> .env
+            fi
+            export FLIBUSTA_HTTP_PORT=""
+        fi
+    else
+        # Порт 80 свободен, настраиваем его проброс
+        if ! grep -q "^FLIBUSTA_HTTP_PORT=" .env 2>/dev/null; then
+            echo "FLIBUSTA_HTTP_PORT=80" >> .env
+        else
+            sed -i "s|^FLIBUSTA_HTTP_PORT=.*|FLIBUSTA_HTTP_PORT=80|" .env
+        fi
+        export FLIBUSTA_HTTP_PORT=80
+        log "${GREEN}✓ Порт 80 настроен для проброса${NC}"
+    fi
+    
     # Обновление домена в nginx конфигурации
     update_nginx_domain "$DOMAIN"
     
-    # Перезапуск контейнеров для применения изменений (включая проброс порта 80)
+    # Перезапуск контейнеров для применения изменений
     local compose_cmd=$(get_compose_cmd)
     if $compose_cmd ps webserver 2>/dev/null | grep -q "Up"; then
-        log "${BLUE}Перезапуск контейнеров для применения изменений (проброс порта 80)...${NC}"
-        $compose_cmd down webserver >/dev/null 2>&1
-        sleep 2
-        $compose_cmd up -d webserver >/dev/null 2>&1
+        log "${BLUE}Перезапуск контейнеров для применения изменений...${NC}"
+        $compose_cmd restart webserver >/dev/null 2>&1
         sleep 5
         
         # Проверяем, что контейнер запустился
         if ! $compose_cmd ps webserver 2>/dev/null | grep -q "Up"; then
             log "${RED}✗ Не удалось перезапустить контейнер webserver${NC}"
-            log "${YELLOW}Возможно, порт 80 уже занят. Проверьте: sudo netstat -tuln | grep :80${NC}"
-            return 1
+            log "${YELLOW}Проверьте логи: $compose_cmd logs webserver${NC}"
+            
+            # Если порт 80 занят, пробуем запустить без него
+            if [ -z "$FLIBUSTA_HTTP_PORT" ] || [ "$FLIBUSTA_HTTP_PORT" = "" ]; then
+                log "${YELLOW}Попытка запуска без проброса порта 80...${NC}"
+                if grep -q "^FLIBUSTA_HTTP_PORT=" .env; then
+                    sed -i "s|^FLIBUSTA_HTTP_PORT=.*|FLIBUSTA_HTTP_PORT=|" .env
+                fi
+                $compose_cmd up -d webserver >/dev/null 2>&1
+                sleep 3
+            fi
+        else
+            log "${GREEN}✓ Контейнер webserver перезапущен${NC}"
         fi
-        
-        log "${GREEN}✓ Контейнер webserver перезапущен${NC}"
     fi
     
     # Получение SSL сертификата
