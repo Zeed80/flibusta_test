@@ -88,7 +88,8 @@ $length_letters = mb_strlen($letters, 'UTF-8');
 
 // Исправляем SQL-инъекцию, используя prepared statement
 // Логика согласно стандарту OPDS: иерархическая навигация
-if ($length_letters > 0) {
+try {
+	if ($length_letters > 0) {
 	// Проверяем общее количество авторов с этим префиксом
 	$lettersUpper = mb_strtoupper($letters, 'UTF-8');
 	$countQuery = "
@@ -125,32 +126,23 @@ if ($length_letters > 0) {
 	} else {
 		// Группируем по префиксам (N+1 символов)
 		// ВАЖНО: показываем только уникальные префиксы следующего уровня
-		// Используем DISTINCT ON для PostgreSQL, чтобы получить только уникальные префиксы
 		$alphaExpr = "UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))";
 		// Применяем русский collation, если доступен
 		$orderByExpr = $alphaExpr;
 		if (class_exists('OPDSCollation')) {
 			$orderByExpr = OPDSCollation::applyRussianCollation($alphaExpr, $dbh);
 		}
-		// Используем подзапрос для получения уникальных префиксов
-		// и затем считаем количество авторов для каждого префикса
+		// Простой запрос с GROUP BY - PostgreSQL автоматически покажет только уникальные префиксы
 		$query = "
 			SELECT 
-				prefix as alpha,
+				" . $alphaExpr . " as alpha,
 				COUNT(*) as cnt
-			FROM (
-				SELECT DISTINCT " . $alphaExpr . " as prefix
-				FROM libavtorname
-				WHERE LastName IS NOT NULL 
-				AND TRIM(LastName) != ''
-				AND LENGTH(TRIM(LastName)) >= " . ($length_letters + 1) . "
-				AND UPPER(SUBSTR(TRIM(LastName), 1, " . $length_letters . ")) = :prefix
-			) AS unique_prefixes
-			JOIN libavtorname ON UPPER(SUBSTR(TRIM(libavtorname.LastName), 1, " . ($length_letters + 1) . ")) = unique_prefixes.prefix
-			WHERE libavtorname.LastName IS NOT NULL 
-			AND TRIM(libavtorname.LastName) != ''
-			AND UPPER(SUBSTR(TRIM(libavtorname.LastName), 1, " . $length_letters . ")) = :prefix
-			GROUP BY prefix
+			FROM libavtorname
+			WHERE LastName IS NOT NULL 
+			AND TRIM(LastName) != ''
+			AND LENGTH(TRIM(LastName)) >= " . ($length_letters + 1) . "
+			AND UPPER(SUBSTR(TRIM(LastName), 1, " . $length_letters . ")) = :prefix
+			GROUP BY " . $alphaExpr . "
 			ORDER BY " . $orderByExpr;
 		$ai = $dbh->prepare($query);
 		$ai->bindParam(":prefix", $lettersUpper);
@@ -176,9 +168,9 @@ if ($length_letters > 0) {
 		HAVING " . $alphaExpr . " ~ '^[A-ZА-ЯЁ]'
 		ORDER BY " . $orderByExpr;
 	$ai = $dbh->query($query);
-}
+	}
 
-// Отображаем результаты согласно стандарту OPDS
+	// Отображаем результаты согласно стандарту OPDS
 if ($length_letters > 0) {
 	if (isset($showAuthors) && $showAuthors) {
 		// Показываем отдельных авторов
@@ -255,6 +247,23 @@ if ($length_letters > 0) {
 		));
 		$feed->addEntry($entry);
 	}
+} catch (PDOException $e) {
+	error_log("OPDS authorsindex.php: SQL error: " . $e->getMessage());
+	error_log("OPDS authorsindex.php: Query: " . ($query ?? 'N/A'));
+	http_response_code(500);
+	header('Content-Type: application/atom+xml; charset=utf-8');
+	echo '<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
+  <id>tag:error:sql</id>
+  <title>Ошибка базы данных</title>
+  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+  <entry>
+    <id>tag:error:query</id>
+    <title>Ошибка выполнения запроса</title>
+    <summary type="text">Не удалось выполнить запрос к базе данных</summary>
+  </entry>
+</feed>';
+	exit;
 }
 
 // Рендерим фид
