@@ -35,7 +35,7 @@ $letters = isset($_GET['letters']) ? trim($_GET['letters']) : '';
 
 // Создаем ключ кэша для индекса авторов
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_authorsindex_v6_' . md5($letters);
+$cacheKey = 'opds_authorsindex_v7_' . md5($letters);
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -87,26 +87,30 @@ $feed->addLink(new OPDSLink(
 $length_letters = mb_strlen($letters, 'UTF-8');
 
 // Исправляем SQL-инъекцию, используя prepared statement
+// Логика согласно стандарту OPDS: иерархическая навигация
 if ($length_letters > 0) {
-	// Ищем авторов, фамилия которых начинается с указанного префикса
-	// Используем UPPER для сравнения без учета регистра
-	$lettersUpper = mb_strtoupper($letters, 'UTF-8');
-	$searchPattern = $lettersUpper . '%';
-	
-	// Получаем список авторов, начинающихся с указанного префикса
+	// Группируем авторов по префиксам (N+1 символов)
+	// Если авторов много (>500), показываем подгруппы, иначе - отдельных авторов
+	$pattern = $letters . '_';
+	$alphaExpr = "UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))";
+	// Применяем русский collation, если доступен
+	$orderByExpr = $alphaExpr;
+	if (class_exists('OPDSCollation')) {
+		$orderByExpr = OPDSCollation::applyRussianCollation($alphaExpr, $dbh);
+	}
 	$query = "
-		SELECT avtorid, lastname, firstname, middlename, nickname,
-			(SELECT COUNT(*) FROM libavtor, libbook WHERE 
-			libbook.deleted='0' AND
-			libbook.bookid=libavtor.bookid AND
-			libavtor.avtorid=libavtorname.avtorid) as cnt
+		SELECT " . $alphaExpr . " as alpha, COUNT(*) as cnt
 		FROM libavtorname
 		WHERE LastName IS NOT NULL 
 		AND TRIM(LastName) != ''
-		AND UPPER(TRIM(LastName)) LIKE :pattern
-		ORDER BY " . (class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollationToMultiple(['lastname', 'firstname'], $dbh) : 'lastname, firstname');
+		AND SUBSTR(TRIM(LastName), 1, " . $length_letters . ") = :prefix
+		AND " . $alphaExpr . " SIMILAR TO :pattern
+		GROUP BY " . $alphaExpr . "
+		ORDER BY " . $orderByExpr;
 	$ai = $dbh->prepare($query);
-	$ai->bindParam(":pattern", $searchPattern);
+	$lettersUpper = mb_strtoupper($letters, 'UTF-8');
+	$ai->bindParam(":prefix", $lettersUpper);
+	$ai->bindParam(":pattern", $pattern);
 	$ai->execute();
 } else {
 	// Фильтруем на уровне SQL: исключаем пустые LastName и те, что начинаются не с буквы
@@ -129,50 +133,92 @@ if ($length_letters > 0) {
 	$ai = $dbh->query($query);
 }
 
+// Отображаем результаты согласно стандарту OPDS
 if ($length_letters > 0) {
-	// Показываем список авторов, начинающихся с указанного префикса
-	while ($a = $ai->fetch(PDO::FETCH_OBJ)) {
-		if ($a->cnt > 0) {
-			// Формируем имя автора
-			$authorName = trim("$a->lastname $a->firstname $a->middlename $a->nickname");
-			if (empty($authorName)) {
-				continue;
-			}
-			
+	// Если передан префикс, показываем подгруппы или отдельных авторов
+	// В зависимости от количества авторов в каждой подгруппе
+	while ($ach = $ai->fetchObject()) {
+		$alpha = trim($ach->alpha ?? '');
+		if (empty($alpha)) {
+			continue;
+		}
+		
+		$firstChar = mb_substr($alpha, 0, 1, 'UTF-8');
+		if (!preg_match('/^[\p{Cyrillic}\p{Latin}]$/u', $firstChar)) {
+			continue;
+		}
+		
+		// Если авторов в подгруппе много (>30), создаем подгруппу следующего уровня
+		// Иначе - показываем отдельных авторов с этим префиксом
+		if ($ach->cnt > 30) {
+			// Много авторов - создаем подгруппу (переход на более длинный префикс)
+			$url = $webroot . '/opds/authorsindex?letters=' . urlencode($alpha);
 			$entry = new OPDSEntry();
-			$entry->setId("tag:author:$a->avtorid");
-			$entry->setTitle($authorName);
+			$entry->setId("tag:authors:" . htmlspecialchars($alpha, ENT_XML1, 'UTF-8'));
+			$entry->setTitle($alpha);
 			$entry->setUpdated($cdt);
-			$entry->setContent("$a->cnt книг", 'text');
+			$entry->setContent("$ach->cnt авторов на " . $alpha, 'text');
 			$entry->addLink(new OPDSLink(
-				$webroot . '/opds/author?author_id=' . $a->avtorid,
+				$url,
 				'subsection',
 				OPDSVersion::getProfile( 'navigation')
 			));
-			
 			$feed->addEntry($entry);
+		} else {
+			// Мало авторов - показываем список авторов напрямую
+			$alphaUpper = mb_strtoupper($alpha, 'UTF-8');
+			$searchPattern = $alphaUpper . '%';
+			$authorsQuery = "
+				SELECT avtorid, lastname, firstname, middlename, nickname,
+					(SELECT COUNT(*) FROM libavtor, libbook WHERE 
+					libbook.deleted='0' AND
+					libbook.bookid=libavtor.bookid AND
+					libavtor.avtorid=libavtorname.avtorid) as cnt
+				FROM libavtorname
+				WHERE LastName IS NOT NULL 
+				AND TRIM(LastName) != ''
+				AND UPPER(SUBSTR(TRIM(LastName), 1, " . mb_strlen($alpha, 'UTF-8') . ")) = :prefix
+				ORDER BY " . (class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollationToMultiple(['lastname', 'firstname'], $dbh) : 'lastname, firstname');
+			$authorsStmt = $dbh->prepare($authorsQuery);
+			$authorsStmt->bindParam(":prefix", $alphaUpper);
+			$authorsStmt->execute();
+			
+			while ($a = $authorsStmt->fetch(PDO::FETCH_OBJ)) {
+				if ($a->cnt > 0) {
+					$authorName = trim("$a->lastname $a->firstname $a->middlename $a->nickname");
+					if (empty($authorName)) {
+						continue;
+					}
+					
+					$entry = new OPDSEntry();
+					$entry->setId("tag:author:$a->avtorid");
+					$entry->setTitle($authorName);
+					$entry->setUpdated($cdt);
+					$entry->setContent("$a->cnt книг", 'text');
+					$entry->addLink(new OPDSLink(
+						$webroot . '/opds/author?author_id=' . $a->avtorid,
+						'subsection',
+						OPDSVersion::getProfile( 'navigation')
+					));
+					$feed->addEntry($entry);
+				}
+			}
 		}
 	}
 } else {
 	// Показываем алфавитный индекс (первые буквы фамилий)
 	while ($ach = $ai->fetchObject()) {
-		// НЕ нормализуем алфавитный индекс - сохраняем оригинальный текст (включая кириллицу)
 		$alpha = trim($ach->alpha ?? '');
-		
-		// Пропускаем пустые записи (дополнительная проверка на всякий случай)
 		if (empty($alpha)) {
 			continue;
 		}
 		
-		// Дополнительная проверка: первый символ должен быть буквой
-		// (хотя SQL уже фильтрует, но на всякий случай)
 		$firstChar = mb_substr($alpha, 0, 1, 'UTF-8');
 		if (!preg_match('/^[\p{Cyrillic}\p{Latin}]$/u', $firstChar)) {
 			continue;
 		}
 		
 		$url = $webroot . '/opds/authorsindex?letters=' . urlencode($alpha);
-		
 		$entry = new OPDSEntry();
 		$entry->setId("tag:authors:" . htmlspecialchars($alpha, ENT_XML1, 'UTF-8'));
 		$entry->setTitle($alpha);
@@ -183,7 +229,6 @@ if ($length_letters > 0) {
 			'subsection',
 			OPDSVersion::getProfile( 'navigation')
 		));
-		
 		$feed->addEntry($entry);
 	}
 }
