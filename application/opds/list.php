@@ -192,8 +192,8 @@ $navService->addSortByLinks($feed, $baseUrl, $params);
 // Добавляем фасетную навигацию (OPDS 1.2)
 // Фасет по языкам
 	$langFacet = new OPDSFacet('language', 'Язык');
-	$langOrderBy = class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollation('lang', $dbh) : 'lang';
-	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY " . $langOrderBy . " LIMIT 10");
+	// Для ORDER BY в GROUP BY запросе используем простую сортировку (collation не нужен для языковых кодов)
+	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY lang LIMIT 10");
 	while ($lang = $langs->fetch(PDO::FETCH_OBJ)) {
 		$langValue = $lang->lang ?? '';
 		if ($langValue) {
@@ -213,8 +213,8 @@ $navService->addSortByLinks($feed, $baseUrl, $params);
 	
 	// Фасет по форматам
 	$formatFacet = new OPDSFacet('format', 'Формат');
-	$formatOrderBy = class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollation('filetype', $dbh) : 'filetype';
-	$formats = $dbh->query("SELECT DISTINCT filetype, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND filetype != '' GROUP BY filetype ORDER BY " . $formatOrderBy);
+	// Для ORDER BY в GROUP BY запросе используем простую сортировку (collation не нужен для форматов файлов)
+	$formats = $dbh->query("SELECT DISTINCT filetype, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND filetype != '' GROUP BY filetype ORDER BY filetype");
 	while ($format = $formats->fetch(PDO::FETCH_OBJ)) {
 		$filetype = $format->filetype ?? '';
 		if ($filetype) {

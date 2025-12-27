@@ -82,6 +82,10 @@ class OPDSCollation {
             }
         }
         
-        return implode(', ', $result) . ' ' . $direction;
+        if ($direction !== '') {
+            return implode(', ', $result) . ' ' . $direction;
+        }
+        
+        return implode(', ', $result);
     }
 }
