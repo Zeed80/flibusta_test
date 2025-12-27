@@ -90,30 +90,32 @@ $length_letters = mb_strlen($letters, 'UTF-8');
 if ($length_letters > 0) {
 	$pattern = $letters . '_';
 	// Фильтруем на уровне SQL: исключаем пустые LastName и те, что начинаются не с буквы
+	$alphaExpr = "UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))";
 	$query = "
-		SELECT UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . ")) as alpha, COUNT(*) as cnt
+		SELECT " . $alphaExpr . " as alpha, COUNT(*) as cnt
 		FROM libavtorname
 		WHERE LastName IS NOT NULL 
 		AND TRIM(LastName) != ''
 		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
-		AND UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . ")) SIMILAR TO :pattern
-		GROUP BY UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))
-		ORDER BY alpha COLLATE \"ru_RU.UTF-8\"";
+		AND " . $alphaExpr . " SIMILAR TO :pattern
+		GROUP BY " . $alphaExpr . "
+		ORDER BY " . $alphaExpr . " COLLATE \"ru_RU.UTF-8\"";
 	$ai = $dbh->prepare($query);
 	$ai->bindParam(":pattern", $pattern);
 	$ai->execute();
 } else {
 	// Фильтруем на уровне SQL: исключаем пустые LastName и те, что начинаются не с буквы
 	// Используем TRIM для удаления пробелов и проверяем, что первый символ - буква
+	$alphaExpr = "UPPER(SUBSTR(TRIM(LastName), 1, 1))";
 	$query = "
-		SELECT UPPER(SUBSTR(TRIM(LastName), 1, 1)) as alpha, COUNT(*) as cnt
+		SELECT " . $alphaExpr . " as alpha, COUNT(*) as cnt
 		FROM libavtorname
 		WHERE LastName IS NOT NULL 
 		AND TRIM(LastName) != ''
 		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
-		GROUP BY UPPER(SUBSTR(TRIM(LastName), 1, 1))
-		HAVING UPPER(SUBSTR(TRIM(LastName), 1, 1)) ~ '^[A-ZА-ЯЁ]'
-		ORDER BY alpha COLLATE \"ru_RU.UTF-8\"";
+		GROUP BY " . $alphaExpr . "
+		HAVING " . $alphaExpr . " ~ '^[A-ZА-ЯЁ]'
+		ORDER BY " . $alphaExpr . " COLLATE \"ru_RU.UTF-8\"";
 	$ai = $dbh->query($query);
 }
 
