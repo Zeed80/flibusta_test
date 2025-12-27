@@ -10,52 +10,61 @@ if (function_exists('opcache_invalidate')) {
  * Класс для создания записей в OPDS 1.2 фидах
  */
 class OPDSEntry {
-    protected $id;
-    protected $title;
-    protected $updated;
-    protected $content;
-    protected $contentType = 'text';
-    protected $summary;
-    protected $summaryType = 'text';
-    protected $authors = [];
-    protected $categories = [];
-    protected $links = [];
-    protected $metadata = [];
+    protected ?string $id = null;
+    protected ?string $title = null;
+    protected string $updated;
+    protected ?string $content = null;
+    protected string $contentType = 'text';
+    protected ?string $summary = null;
+    protected string $summaryType = 'text';
+    /** @var array<int, array{name: string, uri: string|null}> */
+    protected array $authors = [];
+    /** @var array<int, array{term: string, label: string|null, scheme: string|null}> */
+    protected array $categories = [];
+    /** @var OPDSLink[] */
+    protected array $links = [];
+    /** @var array<string, array<string, string>> */
+    protected array $metadata = [];
     
     public function __construct() {
         $this->updated = date('c');
     }
     
-    public function setId($id) {
+    public function setId(string $id): self {
         $this->id = $id;
         return $this;
     }
     
-    public function getId() {
+    public function getId(): ?string {
         return $this->id;
     }
     
-    public function setTitle($title) {
+    public function setTitle(string $title): self {
         // Не нормализуем title для entry, чтобы сохранить оригинальный текст (включая кириллицу)
         // normalize_text_for_opds может удалить кириллицу
         $this->title = $title;
         return $this;
     }
     
-    public function getTitle() {
+    public function getTitle(): ?string {
         return $this->title;
     }
     
-    public function setUpdated($updated) {
+    public function setUpdated(string $updated): self {
         $this->updated = $updated;
         return $this;
     }
     
-    public function getUpdated() {
+    public function getUpdated(): string {
         return $this->updated;
     }
     
-    public function setContent($content, $type = 'text') {
+    /**
+     * @param string $content
+     * @param string $type
+     * @return $this
+     */
+    public function setContent(string $content, string $type = 'text'): self {
         // Для text типа не используем normalize_text_for_opds, чтобы избежать проблем
         // Для HTML контента сохраняем структуру, но нормализуем текст
         $preserve_html = ($type === 'html' || $type === 'text/html');
@@ -69,7 +78,12 @@ class OPDSEntry {
         return $this;
     }
     
-    public function setSummary($summary, $type = 'text') {
+    /**
+     * @param string $summary
+     * @param string $type
+     * @return $this
+     */
+    public function setSummary(string $summary, string $type = 'text'): self {
         // Для HTML контента сохраняем структуру, но нормализуем текст
         $preserve_html = ($type === 'html' || $type === 'text/html');
         $this->summary = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($summary, $preserve_html) : $summary;
@@ -77,14 +91,25 @@ class OPDSEntry {
         return $this;
     }
     
-    public function addAuthor($name, $uri = null) {
+    /**
+     * @param string $name
+     * @param string|null $uri
+     * @return $this
+     */
+    public function addAuthor(string $name, ?string $uri = null): self {
         // НЕ нормализуем имя автора - сохраняем оригинальный текст (включая кириллицу)
         // normalize_text_for_opds может удалить кириллицу
         $this->authors[] = ['name' => $name, 'uri' => $uri];
         return $this;
     }
     
-    public function addCategory($term, $label = null, $scheme = null) {
+    /**
+     * @param string $term
+     * @param string|null $label
+     * @param string|null $scheme
+     * @return $this
+     */
+    public function addCategory(string $term, ?string $label = null, ?string $scheme = null): self {
         $normalizedLabel = $label && function_exists('normalize_text_for_opds') ? normalize_text_for_opds($label) : $label;
         $this->categories[] = [
             'term' => $term,
@@ -94,12 +119,18 @@ class OPDSEntry {
         return $this;
     }
     
-    public function addLink(OPDSLink $link) {
+    public function addLink(OPDSLink $link): self {
         $this->links[] = $link;
         return $this;
     }
     
-    public function addMetadata($namespace, $name, $value) {
+    /**
+     * @param string $namespace
+     * @param string $name
+     * @param string $value
+     * @return $this
+     */
+    public function addMetadata(string $namespace, string $name, string $value): self {
         if (!isset($this->metadata[$namespace])) {
             $this->metadata[$namespace] = [];
         }

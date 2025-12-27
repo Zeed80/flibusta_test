@@ -124,7 +124,7 @@ while ($ach = $ai->fetchObject()) {
 		$entry->addLink(new OPDSLink(
 			$webroot . '/opds/sequencesindex?letters=' . urlencode($alpha),
 			'subsection',
-			OPDSVersion::getProfile( 'acquisition')
+			OPDSVersion::getProfile( 'navigation')
 		));
 		$feed->addEntry($entry);
 	} else {
@@ -132,7 +132,7 @@ while ($ach = $ai->fetchObject()) {
 		$sq = $dbh->prepare("SELECT SeqName, SeqId 
 				from libseqname 
 				where UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) = :pattern
-				ORDER BY UPPER(SeqName)");
+				ORDER BY UPPER(SeqName) COLLATE \"ru_RU.UTF-8\"");
 		$sq->bindParam(":pattern", $alpha);
 		$sq->execute();
 		while($s = $sq->fetchObject()){

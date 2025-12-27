@@ -10,35 +10,35 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 
 // Проверяем наличие необходимых глобальных переменных
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
-    http_response_code(500);
-    header('Content-Type: application/atom+xml; charset=utf-8');
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:internal</id>
-  <title>Внутренняя ошибка сервера</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:init</id>
-    <title>Ошибка инициализации</title>
-    <summary type="text">Не удалось инициализировать необходимые переменные</summary>
-  </entry>
-</feed>';
     error_log("OPDS list.php: Missing required global variables (dbh, webroot, or cdt)");
-    exit;
+    OPDSErrorHandler::sendInitializationError();
 }
 
 // Инициализируем кэш OPDS (используем singleton паттерн)
 $opdsCache = OPDSCache::getInstance();
 
+// Валидируем входные параметры
+try {
+    $genre_id = OPDSValidator::validateId('genre_id', 1);
+    $seq_id = OPDSValidator::validateId('seq_id', 1);
+    $author_id = OPDSValidator::validateId('author_id', 1);
+    $display_type = OPDSValidator::validateEnum('display_type', ['year', 'sequenceless', 'alphabet'], null);
+    $lang = OPDSValidator::validateString('lang', 10, false, '/^[a-z]{2}$/');
+    $format = OPDSValidator::validateString('format', 20, false);
+    $page = OPDSValidator::validatePage('page', 1, 1);
+} catch (\InvalidArgumentException $e) {
+    OPDSValidator::handleValidationException($e);
+}
+
 // Получаем параметры фильтрации для кэша
 $cacheParams = [
-    'genre_id' => isset($_GET['genre_id']) ? intval($_GET['genre_id']) : null,
-    'seq_id' => isset($_GET['seq_id']) ? intval($_GET['seq_id']) : null,
-    'author_id' => isset($_GET['author_id']) ? intval($_GET['author_id']) : null,
-    'display_type' => isset($_GET['display_type']) ? $_GET['display_type'] : null,
-    'lang' => isset($_GET['lang']) ? $_GET['lang'] : null,
-    'format' => isset($_GET['format']) ? $_GET['format'] : null,
-    'page' => isset($_GET['page']) ? (int)$_GET['page'] : 1
+    'genre_id' => $genre_id,
+    'seq_id' => $seq_id,
+    'author_id' => $author_id,
+    'display_type' => $display_type,
+    'lang' => $lang,
+    'format' => $format,
+    'page' => $page
 ];
 
 // Создаем ключ кэша
@@ -58,8 +58,9 @@ if ($cachedContent !== null) {
 }
 
 // Если кэша нет или устарел, генерируем фид
-// Создаем фид OPDS 1.2
-$feed = OPDSFeedFactory::create();
+// Создаем сервисы
+$feedService = new OPDSFeedService($dbh, $webroot, $cdt);
+$navService = new OPDSNavigationService($dbh, $webroot, $cdt);
 
 // Определяем параметры фильтрации
 $filter = "deleted='0' ";
@@ -68,19 +69,22 @@ $orderby = ' time DESC ';
 $title = 'в новинках';
 $params = [];
 
+// Используем валидированные значения
+$gid = $genre_id;
+$sid = $seq_id;
+$aid = $author_id;
+
 // Пагинация
-$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $itemsPerPage = OPDS_FEED_COUNT;
 $offset = ($page - 1) * $itemsPerPage;
 
-if (isset($_GET['genre_id'])) {
-	$gid = intval($_GET['genre_id']);
+if ($genre_id !== null) {
 	$filter .= 'AND genreid=:gid ';
 	$join .= 'LEFT JOIN libgenre g USING(BookId) ';
 	$orderby = ' time DESC ';
-	$params['genre_id'] = $gid;
+	$params['genre_id'] = $genre_id;
 	$stmt = $dbh->prepare("SELECT * FROM libgenrelist WHERE genreid=:gid");
-	$stmt->bindParam(":gid", $gid, PDO::PARAM_INT);
+	$stmt->bindParam(":gid", $genre_id, PDO::PARAM_INT);
 	$stmt->execute();
 	$g = $stmt->fetch(PDO::FETCH_OBJ);
 	if ($g) {
@@ -92,14 +96,13 @@ if (isset($_GET['genre_id'])) {
 	}
 }
 
-if (isset($_GET['seq_id'])) {
-	$sid = intval($_GET['seq_id']);
+if ($seq_id !== null) {
 	$filter .= 'AND seqid=:sid ';
 	$join .= 'LEFT JOIN libseq s USING(BookId) ';
-	$orderby = " s.seqnumb ";
-	$params['seq_id'] = $sid;
+	$orderby = " s.seqnumb "; // Для серий сортировка по номеру в серии (число), COLLATE не нужен
+	$params['seq_id'] = $seq_id;
 	$stmt = $dbh->prepare("SELECT * FROM libseqname WHERE seqid=:sid");
-	$stmt->bindParam(":sid", $sid, PDO::PARAM_INT);
+	$stmt->bindParam(":sid", $seq_id, PDO::PARAM_INT);
 	$stmt->execute();
 	$s = $stmt->fetch(PDO::FETCH_OBJ);
 	if ($s) {
@@ -111,29 +114,28 @@ if (isset($_GET['seq_id'])) {
 	}
 }
 
-if (isset($_GET['author_id'])) {
-	$aid = intval($_GET['author_id']);
+if ($author_id !== null) {
 	$filter .= 'AND avtorid=:aid ';
 	$join .= 'JOIN libavtor USING (bookid) JOIN libavtorname USING (avtorid) ';
-	$params['author_id'] = $aid;
+	$params['author_id'] = $author_id;
 	
-	$display_type = isset($_GET['display_type']) ? $_GET['display_type'] : '';
-	if ($display_type == 'sequenceless') {
+	if ($display_type === 'sequenceless') {
 		$filter .= 'AND s.seqid is null ';
 		$join .= ' LEFT JOIN libseq s ON s.bookId= b.bookId ';
 		$orderby = ' time DESC ';
 		$params['display_type'] = 'sequenceless';
-	} else if ($display_type == 'year'){
+	} else if ($display_type === 'year'){
 		$orderby = ' year ';
 		$params['display_type'] = 'year';
-	} else if ($display_type == 'alphabet') {
-		$orderby = ' title ';
+	} else if ($display_type === 'alphabet') {
+		// Сортировка по названию с русским алфавитом (кириллица перед латиницей)
+		$orderby = ' b.title COLLATE "ru_RU.UTF-8" ';
 		$params['display_type'] = 'alphabet';
 	} else {
 		$orderby = ' time DESC ';
 	}
 	$stmt = $dbh->prepare("SELECT * FROM libavtorname WHERE avtorid=:aid");
-	$stmt->bindParam(":aid", $aid, PDO::PARAM_INT);
+	$stmt->bindParam(":aid", $author_id, PDO::PARAM_INT);
 	$stmt->execute();
 	$a = $stmt->fetch(PDO::FETCH_OBJ);
 	if ($a) {
@@ -150,14 +152,14 @@ if (isset($_GET['author_id'])) {
 try {
 	$countQuery = "SELECT COUNT(DISTINCT b.BookId) as cnt FROM libbook b $join WHERE $filter";
 	$countStmt = $dbh->prepare($countQuery);
-	if (isset($gid)) {
-		$countStmt->bindParam(":gid", $gid, PDO::PARAM_INT);
+	if ($genre_id !== null) {
+		$countStmt->bindParam(":gid", $genre_id, PDO::PARAM_INT);
 	}
-	if (isset($sid)) {
-		$countStmt->bindParam(":sid", $sid, PDO::PARAM_INT);
+	if ($seq_id !== null) {
+		$countStmt->bindParam(":sid", $seq_id, PDO::PARAM_INT);
 	}
-	if (isset($aid)) {
-		$countStmt->bindParam(":aid", $aid, PDO::PARAM_INT);
+	if ($author_id !== null) {
+		$countStmt->bindParam(":aid", $author_id, PDO::PARAM_INT);
 	}
 	$countStmt->execute();
 	$countResult = $countStmt->fetch(PDO::FETCH_OBJ);
@@ -165,62 +167,28 @@ try {
 	$totalPages = max(1, ceil($totalItems / $itemsPerPage));
 } catch (PDOException $e) {
 	error_log("OPDS list.php: SQL error in count query: " . $e->getMessage());
-	http_response_code(500);
-	header('Content-Type: application/atom+xml; charset=utf-8');
-	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:sql</id>
-  <title>Ошибка базы данных</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:count</id>
-    <title>Ошибка подсчета записей</title>
-    <summary type="text">Не удалось выполнить запрос к базе данных</summary>
-  </entry>
-</feed>';
-	exit;
+	OPDSErrorHandler::sendSqlError($e->getMessage());
 }
 
-// Настройка фида
-$feed->setId('tag:root:home');
-$feed->setTitle("Книги $title");
-$feed->setUpdated($cdt);
-$feed->setIcon($webroot . '/favicon.ico');
+// Создаем фид используя сервис
+$feed = $feedService->createFeed('tag:root:home', "Книги $title", 'acquisition');
 
-// Добавляем ссылки
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds/opensearch.xml.php',
-	'search',
-	'application/opensearchdescription+xml'
-));
-
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds/search?q={searchTerms}',
-	'search',
-	OPDSVersion::getProfile('acquisition')
-));
-
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds/',
-	'start',
-	OPDSVersion::getProfile('navigation')
-));
-
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds/list?' . http_build_query(array_merge($params, ['page' => $page])),
-	'self',
-	OPDSVersion::getProfile('acquisition')
-));
-
-// Добавляем навигацию
+// Добавляем self ссылку
 $baseUrl = $webroot . '/opds/list';
-$navigation = new OPDSNavigation($page, $totalPages, $totalItems, $itemsPerPage, $baseUrl, $params);
+$selfUrl = $baseUrl . '?' . http_build_query(array_merge($params, ['page' => $page]));
+$feedService->addSelfLink($feed, $selfUrl, 'acquisition');
+
+// Добавляем навигацию используя сервис
+$navigation = $navService->createNavigation($page, $totalPages, $totalItems, $itemsPerPage, $baseUrl, $params);
 $feed->setNavigation($navigation);
+
+// Добавляем ссылки для сортировки (opds:sortBy) - OPDS 1.2 feature
+$navService->addSortByLinks($feed, $baseUrl, $params);
 
 // Добавляем фасетную навигацию (OPDS 1.2)
 // Фасет по языкам
 	$langFacet = new OPDSFacet('language', 'Язык');
-	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY lang LIMIT 10");
+	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY lang COLLATE \"ru_RU.UTF-8\" LIMIT 10");
 	while ($lang = $langs->fetch(PDO::FETCH_OBJ)) {
 		$langValue = $lang->lang ?? '';
 		if ($langValue) {
@@ -240,7 +208,7 @@ $feed->setNavigation($navigation);
 	
 	// Фасет по форматам
 	$formatFacet = new OPDSFacet('format', 'Формат');
-	$formats = $dbh->query("SELECT DISTINCT filetype, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND filetype != '' GROUP BY filetype ORDER BY filetype");
+	$formats = $dbh->query("SELECT DISTINCT filetype, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND filetype != '' GROUP BY filetype ORDER BY filetype COLLATE \"ru_RU.UTF-8\"");
 	while ($format = $formats->fetch(PDO::FETCH_OBJ)) {
 		$filetype = $format->filetype ?? '';
 		if ($filetype) {
@@ -268,30 +236,33 @@ try {
 		ORDER BY $orderby
 		LIMIT :limit OFFSET :offset");
 
-	if (isset($gid)) {
-		$books->bindParam(":gid", $gid, PDO::PARAM_INT);
+	if ($genre_id !== null) {
+		$books->bindParam(":gid", $genre_id, PDO::PARAM_INT);
 	}
-	if (isset($sid)) {
-		$books->bindParam(":sid", $sid, PDO::PARAM_INT);
+	if ($seq_id !== null) {
+		$books->bindParam(":sid", $seq_id, PDO::PARAM_INT);
 	}
-	if (isset($aid)) {
-		$books->bindParam(":aid", $aid, PDO::PARAM_INT);
+	if ($author_id !== null) {
+		$books->bindParam(":aid", $author_id, PDO::PARAM_INT);
 	}
 	$books->bindValue(":limit", $itemsPerPage, PDO::PARAM_INT);
 	$books->bindValue(":offset", $offset, PDO::PARAM_INT);
 	$books->execute();
 
+	// Используем OPDSBookService для создания entries
+	$bookService = new OPDSBookService($dbh, $webroot, $cdt);
+	
 	$entriesCount = 0;
 	$errorsCount = 0;
 	while ($b = $books->fetch(PDO::FETCH_OBJ)) {
 		try {
-			$entry = opds_book_entry($b, $webroot);
+			$entry = $bookService->createBookEntry($b);
 			if ($entry) {
 				$feed->addEntry($entry);
 				$entriesCount++;
 			} else {
 				$errorsCount++;
-				error_log("OPDS list.php: opds_book_entry returned null for book " . ($b->BookId ?? $b->bookid ?? 'unknown'));
+				error_log("OPDS list.php: createBookEntry returned null for book " . ($b->BookId ?? $b->bookid ?? 'unknown'));
 			}
 		} catch (Exception $e) {
 			$errorsCount++;
@@ -308,38 +279,10 @@ try {
 } catch (PDOException $e) {
 	error_log("OPDS list.php: SQL error in books query: " . $e->getMessage());
 	error_log("OPDS list.php: Query: SELECT b.* FROM libbook b $join WHERE $filter ORDER BY $orderby LIMIT :limit OFFSET :offset");
-	error_log("OPDS list.php: Params: gid=" . ($gid ?? 'null') . ", sid=" . ($sid ?? 'null') . ", aid=" . ($aid ?? 'null'));
-	http_response_code(500);
-	header('Content-Type: application/atom+xml; charset=utf-8');
-	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:sql</id>
-  <title>Ошибка базы данных</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:books</id>
-    <title>Ошибка получения книг</title>
-    <summary type="text">Не удалось выполнить запрос к базе данных: ' . htmlspecialchars($e->getMessage(), ENT_XML1, 'UTF-8') . '</summary>
-  </entry>
-</feed>';
-	exit;
+	error_log("OPDS list.php: Params: genre_id=" . ($genre_id ?? 'null') . ", seq_id=" . ($seq_id ?? 'null') . ", author_id=" . ($author_id ?? 'null'));
+	OPDSErrorHandler::sendSqlError($e->getMessage());
 } catch (Exception $e) {
-	error_log("OPDS list.php: Unexpected error: " . $e->getMessage());
-	error_log("OPDS list.php: Stack trace: " . $e->getTraceAsString());
-	http_response_code(500);
-	header('Content-Type: application/atom+xml; charset=utf-8');
-	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:unexpected</id>
-  <title>Неожиданная ошибка</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:unexpected</id>
-    <title>Ошибка обработки</title>
-    <summary type="text">Произошла неожиданная ошибка при обработке запроса</summary>
-  </entry>
-</feed>';
-	exit;
+	OPDSErrorHandler::handleException($e, 500);
 }
 
 // Рендерим фид

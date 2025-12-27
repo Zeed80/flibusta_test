@@ -11,41 +11,21 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 
 // Проверяем наличие необходимых глобальных переменных
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
-    http_response_code(500);
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:internal</id>
-  <title>Внутренняя ошибка сервера</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:init</id>
-    <title>Ошибка инициализации</title>
-    <summary type="text">Не удалось инициализировать необходимые переменные</summary>
-  </entry>
-</feed>';
     error_log("OPDS author.php: Missing required global variables (dbh, webroot, or cdt)");
-    exit;
+    OPDSErrorHandler::sendInitializationError();
 }
 
 // Инициализируем кэш OPDS (используем singleton паттерн)
 $opdsCache = OPDSCache::getInstance();
 
-$author_id = isset($_GET['author_id']) ? (int)$_GET['author_id'] : 0;
-if ($author_id == 0) {
-    http_response_code(400);
-    header('Content-Type: application/atom+xml; charset=utf-8');
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:author:missing</id>
-  <title>Ошибка</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:missing_author_id</id>
-    <title>Не указан автор</title>
-    <summary type="text">Необходимо указать идентификатор автора (параметр author_id)</summary>
-  </entry>
-</feed>';
-    exit;
+// Валидируем author_id
+try {
+    $author_id = OPDSValidator::validateId('author_id', 1);
+    if ($author_id === null) {
+        OPDSValidator::handleValidationException(new \InvalidArgumentException('Параметр author_id обязателен'));
+    }
+} catch (\InvalidArgumentException $e) {
+    OPDSValidator::handleValidationException($e);
 }
 
 // Получаем параметры для кэша
@@ -139,7 +119,7 @@ if ($a = $stmt->fetchObject()){
             $entry->setUpdated($cdt);
             $entry->addLink(new OPDSLink(
                 $webroot . '/opds/list?seq_id=' . $seq->seqid,
-                'subsection',
+                'http://opds-spec.org/acquisition',
                 OPDSVersion::getProfile( 'acquisition')
             ));
             $feed->addEntry($entry);
@@ -196,62 +176,62 @@ if ($a = $stmt->fetchObject()){
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
-                'subsection',
+                'http://opds-spec.org/acquisition',
                 OPDSVersion::getProfile( 'acquisition'),
                 'Книги автора по алфавиту'
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
                 'subsection',
-                OPDSVersion::getProfile( 'acquisition'),
+                OPDSVersion::getProfile( 'navigation'),
                 'Книжные серии с произведениями автора'
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
-                'subsection',
+                'http://opds-spec.org/acquisition',
                 OPDSVersion::getProfile( 'acquisition'),
                 'Книги автора вне серий'
             ));
             $feed->addEntry($bioEntry);
         }
         
-        // Все книги автора
+        // Все книги автора - это acquisition фид
         $allBooksEntry = new OPDSEntry();
         $allBooksEntry->setId("tag:author:$author_id:list");
         $allBooksEntry->setTitle('Все книги автора (без сортировки)');
         $allBooksEntry->setUpdated($cdt);
         $allBooksEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id,
-            'subsection',
+            'http://opds-spec.org/acquisition',
             OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($allBooksEntry);
         
-        // По алфавиту
+        // По алфавиту - это acquisition фид
         $alphabetEntry = new OPDSEntry();
         $alphabetEntry->setId("tag:author:$author_id:alphabet");
         $alphabetEntry->setTitle('Книги автора по алфавиту');
         $alphabetEntry->setUpdated($cdt);
         $alphabetEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
-            'subsection',
+            'http://opds-spec.org/acquisition',
             OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($alphabetEntry);
         
-        // По году
+        // По году - это acquisition фид
         $yearEntry = new OPDSEntry();
         $yearEntry->setId("tag:author:$author_id:year");
         $yearEntry->setTitle('Книги автора по году издания');
         $yearEntry->setUpdated($cdt);
         $yearEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id . '&display_type=year',
-            'subsection',
+            'http://opds-spec.org/acquisition',
             OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($yearEntry);
         
-        // Серии
+        // Серии - это navigation фид
         $seqEntry = new OPDSEntry();
         $seqEntry->setId("tag:author:$author_id:sequences");
         $seqEntry->setTitle('Книжные серии с произведениями автора');
@@ -259,38 +239,24 @@ if ($a = $stmt->fetchObject()){
         $seqEntry->addLink(new OPDSLink(
             $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
             'subsection',
-            OPDSVersion::getProfile( 'acquisition')
+            OPDSVersion::getProfile( 'navigation')
         ));
         $feed->addEntry($seqEntry);
         
-        // Вне серий
+        // Вне серий - это acquisition фид
         $sequencelessEntry = new OPDSEntry();
         $sequencelessEntry->setId("tag:author:$author_id:sequenceless");
         $sequencelessEntry->setTitle('Произведения вне серий');
         $sequencelessEntry->setUpdated($cdt);
         $sequencelessEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
-            'subsection',
+            'http://opds-spec.org/acquisition',
             OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($sequencelessEntry);
     } 
 } else {
-    http_response_code(404);
-    header('Content-Type: application/atom+xml; charset=utf-8');
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:author:not_found</id>
-  <title>Ошибка</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:author_not_found</id>
-    <title>Автор не найден</title>
-    <summary type="text">Автор с идентификатором ' . htmlspecialchars($author_id, ENT_XML1, 'UTF-8') . ' не найден в базе данных</summary>
-  </entry>
-</feed>';
-    exit;
-
+    OPDSErrorHandler::sendNotFoundError('Автор');
 }
 
 // Рендерим фид

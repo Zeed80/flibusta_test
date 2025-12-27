@@ -81,7 +81,7 @@ $feed->addLink(new OPDSLink(
 	OPDSVersion::getProfile( 'navigation')
 ));
 
-$gs = $dbh->prepare("SELECT DISTINCT(genremeta) genre FROM libgenrelist ORDER BY genre");
+$gs = $dbh->prepare("SELECT DISTINCT(genremeta) genre FROM libgenrelist ORDER BY genre COLLATE \"ru_RU.UTF-8\"");
 $gs->execute();
 
 while ($g = $gs->fetch(PDO::FETCH_OBJ)) {

@@ -98,7 +98,7 @@ if ($length_letters > 0) {
 		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
 		AND UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . ")) SIMILAR TO :pattern
 		GROUP BY UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))
-		ORDER BY alpha";
+		ORDER BY alpha COLLATE \"ru_RU.UTF-8\"";
 	$ai = $dbh->prepare($query);
 	$ai->bindParam(":pattern", $pattern);
 	$ai->execute();
@@ -113,7 +113,7 @@ if ($length_letters > 0) {
 		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
 		GROUP BY UPPER(SUBSTR(TRIM(LastName), 1, 1))
 		HAVING UPPER(SUBSTR(TRIM(LastName), 1, 1)) ~ '^[A-ZА-ЯЁ]'
-		ORDER BY alpha";
+		ORDER BY alpha COLLATE \"ru_RU.UTF-8\"";
 	$ai = $dbh->query($query);
 }
 
@@ -147,16 +147,18 @@ while ($ach = $ai->fetchObject()) {
 	
 	// Используем правильный rel для OPDS
 	if ($ach->cnt > 500) {
+		// Если авторов много, это navigation фид (подраздел индекса)
 		$entry->addLink(new OPDSLink(
 			$url,
 			'subsection',
-			OPDSVersion::getProfile( 'acquisition')
+			OPDSVersion::getProfile( 'navigation')
 		));
 	} else {
+		// Если авторов мало, это search результат, который ведет на navigation фид автора
 		$entry->addLink(new OPDSLink(
 			$url,
-			'http://opds-spec.org/acquisition',
-			OPDSVersion::getProfile( 'acquisition')
+			'subsection',
+			OPDSVersion::getProfile( 'navigation')
 		));
 	}
 	

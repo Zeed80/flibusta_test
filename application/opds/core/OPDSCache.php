@@ -1,20 +1,22 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Улучшенный класс для кэширования OPDS фидов с поддержкой инвалидации
  * и интеграцией с обновлением базы данных
  * Использует singleton паттерн для предотвращения ошибок с глобальной областью видимости
  */
 class OPDSCache {
-    private static $instance = null;
-    protected $cacheDir;
-    protected $ttl;
-    protected $enabled;
-    protected $dbName = 'flibusta';
+    private static ?OPDSCache $instance = null;
+    protected string $cacheDir;
+    protected int $ttl;
+    protected bool $enabled;
+    protected string $dbName = 'flibusta';
     
     /**
      * Конструктор (приватный для singleton)
      */
-    private function __construct($cacheDir = null, $ttl = 3600, $enabled = true) {
+    private function __construct(?string $cacheDir = null, int $ttl = 3600, bool $enabled = true) {
         $this->cacheDir = $cacheDir ?: ROOT_PATH . 'cache/opds/';
         $this->ttl = $ttl;
         $this->enabled = $enabled;
@@ -32,7 +34,7 @@ class OPDSCache {
      * @param bool $enabled Включено ли кэширование
      * @return OPDSCache Единственный экземпляр
      */
-    public static function getInstance($cacheDir = null, $ttl = 3600, $enabled = true) {
+    public static function getInstance(?string $cacheDir = null, int $ttl = 3600, bool $enabled = true): OPDSCache {
         if (self::$instance === null) {
             self::$instance = new self($cacheDir, $ttl, $enabled);
         }
@@ -42,17 +44,17 @@ class OPDSCache {
     /**
      * Проверяет, включено ли кэширование
      */
-    public function isEnabled() {
+    public function isEnabled(): bool {
         return $this->enabled;
     }
     
     /**
      * Получает ключ кэша из параметров (публичный метод для использования в OPDS файлах)
      * 
-     * @param array $params Параметры для генерации ключа
+     * @param array<string, mixed> $params Параметры для генерации ключа
      * @return string MD5 хеш ключа кэша
      */
-    public function getCacheKey($params) {
+    public function getCacheKey(array $params): string {
         // Удаляем version из параметров, если он есть (больше не используется)
         if (isset($params['version'])) {
             unset($params['version']);
@@ -63,21 +65,21 @@ class OPDSCache {
     /**
      * Получает путь к файлу кэша
      */
-    protected function getCacheFile($key) {
+    protected function getCacheFile(string $key): string {
         return $this->cacheDir . $key . '.xml';
     }
     
     /**
      * Получает путь к файлу метаданных кэша (для инвалидации)
      */
-    protected function getMetaFile() {
+    protected function getMetaFile(): string {
         return $this->cacheDir . '.metadata';
     }
     
     /**
      * Получает хеш последнего обновления базы данных
      */
-    protected function getDbHash() {
+    protected function getDbHash(): ?string {
         global $dbh;
         try {
             $stmt = $dbh->query("SELECT MAX(time) as max_time FROM libbook");
@@ -104,20 +106,23 @@ class OPDSCache {
     
     /**
      * Получает метаданные кэша
+     * 
+     * @return array<string, mixed>|null
      */
-    protected function getMetadata() {
+    protected function getMetadata(): ?array {
         $metaFile = $this->getMetaFile();
         if (!file_exists($metaFile)) {
             return null;
         }
         $content = file_get_contents($metaFile);
-        return json_decode($content, true);
+        $decoded = json_decode($content, true);
+        return is_array($decoded) ? $decoded : null;
     }
     
     /**
      * Проверяет, действителен ли кэш с учетом обновления БД
      */
-    public function isValid($key) {
+    public function isValid(string $key): bool {
         if (!$this->enabled) {
             return false;
         }
@@ -147,19 +152,20 @@ class OPDSCache {
     /**
      * Получает данные из кэша
      */
-    public function get($key) {
+    public function get(string $key): ?string {
         if (!$this->isValid($key)) {
             return null;
         }
         
         $file = $this->getCacheFile($key);
-        return file_get_contents($file);
+        $content = file_get_contents($file);
+        return $content !== false ? $content : null;
     }
     
     /**
      * Сохраняет данные в кэш
      */
-    public function set($key, $data) {
+    public function set(string $key, string $data): bool {
         if (!$this->enabled) {
             return false;
         }
@@ -215,7 +221,7 @@ class OPDSCache {
     /**
      * Инвалидирует кэш при обновлении базы данных
      */
-    public function invalidateOnDbUpdate() {
+    public function invalidateOnDbUpdate(): int {
         if (!$this->enabled) {
             return 0;
         }
@@ -245,7 +251,7 @@ class OPDSCache {
     /**
      * Инвалидирует кэш по шаблону ключей
      */
-    public function invalidatePattern($pattern) {
+    public function invalidatePattern(string $pattern): int {
         if (!$this->enabled) {
             return 0;
         }
@@ -270,21 +276,21 @@ class OPDSCache {
     /**
      * Инвалидирует кэш для конкретного фида
      */
-    public function invalidateFeed($feedName) {
+    public function invalidateFeed(string $feedName): int {
         return $this->invalidatePattern($feedName . '*.xml');
     }
     
     /**
      * Генерирует ETag для контента
      */
-    public function generateETag($content) {
+    public function generateETag(string $content): string {
         return md5($content);
     }
     
     /**
      * Проверяет ETag и возвращает 304 если контент не изменился
      */
-    public function checkETag($etag) {
+    public function checkETag(string $etag): void {
         if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && $_SERVER['HTTP_IF_NONE_MATCH'] === $etag) {
             header('HTTP/1.1 304 Not Modified');
             header('ETag: ' . $etag);
@@ -296,7 +302,7 @@ class OPDSCache {
     /**
      * Устанавливает заголовки кэширования
      */
-    public function setCacheHeaders($etag, $lastModified = null) {
+    public function setCacheHeaders(string $etag, ?int $lastModified = null): void {
         header('ETag: ' . $etag);
         if ($lastModified) {
             header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $lastModified) . ' GMT');
@@ -307,8 +313,10 @@ class OPDSCache {
     
     /**
      * Получает статистику кэша
+     * 
+     * @return array<string, mixed>|null
      */
-    public function getStats() {
+    public function getStats(): ?array {
         if (!$this->enabled) {
             return null;
         }
@@ -335,7 +343,7 @@ class OPDSCache {
     /**
      * Форматирует размер в читаемый вид
      */
-    protected function formatBytes($bytes, $precision = 2) {
+    protected function formatBytes(int $bytes, int $precision = 2): string {
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
         $bytes = max($bytes, 0);
         $pow = floor(($bytes ? log($bytes) : 0) / log(1024));

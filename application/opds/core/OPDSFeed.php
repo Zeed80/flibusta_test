@@ -6,75 +6,107 @@ declare(strict_types=1);
  * Абстрактный класс, используется как основа для реализации OPDS2Feed
  */
 abstract class OPDSFeed {
-    protected $id;
-    protected $title;
-    protected $updated;
-    protected $icon;
-    protected $entries = [];
-    protected $links = [];
-    protected $facets = [];
-    protected $navigation = null;
-    protected $metadata = [];
+    protected ?string $id = null;
+    protected ?string $title = null;
+    protected string $updated;
+    protected ?string $icon = null;
+    /** @var OPDSEntry[] */
+    protected array $entries = [];
+    /** @var OPDSGroup[] */
+    protected array $groups = [];
+    /** @var OPDSLink[] */
+    protected array $links = [];
+    /** @var OPDSFacet[] */
+    protected array $facets = [];
+    protected ?OPDSNavigation $navigation = null;
+    /** @var array<string, array<string, string>> */
+    protected array $metadata = [];
     
     public function __construct() {
         $this->updated = date('c');
     }
     
-    public function setId($id) {
+    public function setId(string $id): self {
         $this->id = $id;
         return $this;
     }
     
-    public function getId() {
+    public function getId(): ?string {
         return $this->id;
     }
     
-    public function setTitle($title) {
+    public function setTitle(string $title): self {
         // Не нормализуем title для feed, чтобы сохранить оригинальный текст
         // normalize_text_for_opds может удалить кириллицу
         $this->title = $title;
         return $this;
     }
     
-    public function getTitle() {
+    public function getTitle(): ?string {
         return $this->title;
     }
     
-    public function setUpdated($updated) {
+    public function setUpdated(string $updated): self {
         $this->updated = $updated;
         return $this;
     }
     
-    public function getUpdated() {
+    public function getUpdated(): string {
         return $this->updated;
     }
     
-    public function setIcon($icon) {
+    public function setIcon(string $icon): self {
         $this->icon = $icon;
         return $this;
     }
     
-    public function addEntry(OPDSEntry $entry) {
+    public function addEntry(OPDSEntry $entry): self {
         $this->entries[] = $entry;
         return $this;
     }
     
-    public function addLink(OPDSLink $link) {
+    /**
+     * Добавляет группу entries (opds:group)
+     * 
+     * @param OPDSGroup $group Группа для добавления
+     * @return OPDSFeed
+     */
+    public function addGroup(OPDSGroup $group): self {
+        $this->groups[] = $group;
+        return $this;
+    }
+    
+    /**
+     * Получить все группы
+     * 
+     * @return OPDSGroup[]
+     */
+    public function getGroups(): array {
+        return $this->groups;
+    }
+    
+    public function addLink(OPDSLink $link): self {
         $this->links[] = $link;
         return $this;
     }
     
-    public function addFacet(OPDSFacet $facet) {
+    public function addFacet(OPDSFacet $facet): self {
         $this->facets[] = $facet;
         return $this;
     }
     
-    public function setNavigation(OPDSNavigation $navigation) {
+    public function setNavigation(?OPDSNavigation $navigation): self {
         $this->navigation = $navigation;
         return $this;
     }
     
-    public function addMetadata($namespace, $name, $value) {
+    /**
+     * @param string $namespace
+     * @param string $name
+     * @param string $value
+     * @return $this
+     */
+    public function addMetadata(string $namespace, string $name, string $value): self {
         if (!isset($this->metadata[$namespace])) {
             $this->metadata[$namespace] = [];
         }
@@ -87,7 +119,7 @@ abstract class OPDSFeed {
      * 
      * @return string XML строка
      */
-    abstract public function render();
+    abstract public function render(): string;
     
     /**
      * Получает namespace для OPDS 1.2

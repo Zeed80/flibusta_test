@@ -15,39 +15,23 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 
 // Проверяем наличие необходимых глобальных переменных
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
-    http_response_code(500);
-    header('Content-Type: application/atom+xml; charset=utf-8');
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:internal</id>
-  <title>Внутренняя ошибка сервера</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:init</id>
-    <title>Ошибка инициализации</title>
-    <summary type="text">Не удалось инициализировать необходимые переменные</summary>
-  </entry>
-</feed>';
     error_log("OPDS search_book.php: Missing required global variables (dbh, webroot, or cdt)");
-    exit;
+    OPDSErrorHandler::sendInitializationError();
 }
 
 // Инициализируем кэш OPDS (используем singleton паттерн)
 $opdsCache = OPDSCache::getInstance();
 
-// Получаем параметры для кэша
-$q = isset($_GET['q']) ? trim($_GET['q']) : '';
+// Валидируем поисковый запрос
+try {
+    $q = OPDSValidator::validateSearchQuery('q', 1, 255, true);
+} catch (\InvalidArgumentException $e) {
+    OPDSValidator::handleValidationException($e);
+}
+
 $get = "?q=" . urlencode($q);
 
-// Валидация поискового запроса
-if ($q == '') {
-    http_response_code(400);
-    header('Content-Type: application/atom+xml; charset=utf-8');
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:search:book:empty</id>
-  <title>Ошибка поиска</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
+// Получаем параметры для кэша
   <entry>
     <id>tag:error:empty_query</id>
     <title>Пустой запрос</title>
@@ -75,36 +59,14 @@ if ($cachedContent !== null) {
 }
 
 // Если кэша нет или устарел, генерируем фид
-// Создаем фид OPDS 1.2
-$feed = OPDSFeedFactory::create();
-
-// Настройка фида
-$feed->setId('tag:root:authors');
-$feed->setTitle('Поиск по книгам');
-$feed->setUpdated($cdt);
-$feed->setIcon($webroot . '/favicon.ico');
-
-// Добавляем ссылки
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds/opensearch.xml.php',
-	'search',
-	'application/opensearchdescription+xml'
-));
-
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds/search?q={searchTerms}',
-	'search',
-	OPDSVersion::getProfile( 'acquisition')
-));
-
-$feed->addLink(new OPDSLink(
-	$webroot . '/opds',
-	'start',
-	OPDSVersion::getProfile( 'navigation')
-));
+// Создаем фид OPDS 1.2 используя сервис
+$feedService = new OPDSFeedService($dbh, $webroot, $cdt);
+$feed = $feedService->createFeed('tag:root:search:books', 'Поиск по книгам', 'acquisition');
 
 // Полнотекстовый поиск по названию, автору и аннотации
 try {
+	// Используем валидированное значение $q (без экранирования, так как оно уже обработано в валидаторе)
+	// Но для SQL нужен параметр с подстановочными символами
 	$searchParam = '%' . $q . '%';
 	$books = $dbh->prepare("SELECT DISTINCT b.BookId, b.Title as BookTitle, b.time, b.lang, b.year, b.filetype, b.filesize,
 			(SELECT body FROM libbannotations WHERE bookid=b.BookId LIMIT 1) as Body
@@ -127,116 +89,24 @@ try {
 	$books->execute();
 } catch (PDOException $e) {
 	error_log("OPDS search_book.php: SQL error: " . $e->getMessage());
-	http_response_code(500);
-	header('Content-Type: application/atom+xml; charset=utf-8');
-	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:sql</id>
-  <title>Ошибка базы данных</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:search</id>
-    <title>Ошибка поиска</title>
-    <summary type="text">Не удалось выполнить поисковый запрос</summary>
-  </entry>
-</feed>';
-	exit;
+	OPDSErrorHandler::sendSqlError($e->getMessage());
 }
 
+// Используем OPDSBookService для создания entries
+$bookService = new OPDSBookService($dbh, $webroot, $cdt);
 while ($b = $books->fetchObject()) {
-	$entry = new OPDSEntry();
-	// Исправляем регистр: в SQL используется BookId, поэтому обращаемся к BookId
-	$bookId = $b->BookId ?? $b->bookid ?? null;
-	if (!$bookId) {
-		continue; // Пропускаем записи без ID
+	// Приводим объект к формату, который ожидает opds_book_entry()
+	// Преобразуем BookTitle в Title для совместимости
+	$bookObj = $b;
+	if (isset($bookObj->BookTitle) && !isset($bookObj->Title)) {
+		$bookObj->Title = $bookObj->BookTitle;
 	}
 	
-	$entry->setId("tag:book:{$bookId}");
-	$entry->setTitle($b->BookTitle ?? $b->booktitle ?? 'Без названия');
-	$entry->setUpdated($b->time ?: date('c'));
-	
-	// Авторы
-	$as = '';
-	$authors = $dbh->prepare("SELECT libavtorname.lastname, libavtorname.firstname, libavtorname.middlename, libavtorname.AvtorId 
-		FROM libavtorname, libavtor 
-		WHERE libavtor.BookId=:bookid AND libavtor.AvtorId=libavtorname.AvtorId 
-		ORDER BY libavtorname.lastname");
-	$authors->bindParam(":bookid", $bookId, PDO::PARAM_INT);
-	$authors->execute();
-	while ($a = $authors->fetchObject()) {
-		$authorName = trim(($a->lastname ?? '') . ' ' . ($a->firstname ?? '') . ' ' . ($a->middlename ?? ''));
-		if ($authorName) {
-			$as .= $authorName . ", ";
-			$authorId = $a->AvtorId ?? $a->avtorid ?? null;
-			if ($authorId) {
-				$entry->addAuthor($authorName, $webroot . '/opds/author?author_id=' . $authorId);
-			}
-		}
+	// Используем сервис для создания entry
+	$entry = $bookService->createBookEntry($bookObj);
+	if ($entry) {
+		$feed->addEntry($entry);
 	}
-	
-	// Исправляем регистр: в SQL используется Body, поэтому обращаемся к Body
-	$body = $b->Body ?? $b->body ?? null;
-	if ($body) {
-		// Полностью очищаем HTML контент от всех тегов и entities
-		// Декодируем HTML entities (может быть несколько уровней экранирования)
-		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Двойное декодирование на случай двойного экранирования
-		
-		// Удаляем все HTML теги полностью
-		$body = strip_tags($body);
-		
-		// Удаляем оставшиеся HTML entities
-		$body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-		
-		// Удаляем невалидные XML символы
-		$body = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $body);
-		
-		// Удаляем множественные пробелы и переносы строк
-		$body = preg_replace('/\s+/', ' ', $body);
-		$body = trim($body);
-		
-		// Обрезаем слишком длинный текст
-		if (mb_strlen($body) > 1000) {
-			$body = mb_substr($body, 0, 1000) . '...';
-		}
-		
-		// Используем text вместо html чтобы избежать проблем с XML
-		// ВАЖНО: используем 'text', не 'text/html'!
-		if ($body) {
-			$entry->setContent($body, 'text');
-		}
-	}
-	
-	// Ссылки на изображения
-	$entry->addLink(new OPDSLink(
-		$webroot . '/extract_cover.php?id=' . $bookId,
-		'http://opds-spec.org/image/thumbnail',
-		'image/jpeg'
-	));
-	
-	$entry->addLink(new OPDSLink(
-		$webroot . '/extract_cover.php?id=' . $bookId,
-		'http://opds-spec.org/image',
-		'image/jpeg'
-	));
-	
-	// Ссылка на скачивание
-	$fileType = trim($b->filetype ?? '');
-	if ($fileType == 'fb2') {
-		$mimeType = 'application/fb2+zip';
-		$downloadUrl = $webroot . '/fb2.php?id=' . $bookId;
-	} else {
-		$mimeType = 'application/' . $fileType;
-		$downloadUrl = $webroot . '/usr.php?id=' . $bookId;
-	}
-	
-	$entry->addLink(new OPDSLink(
-		$downloadUrl,
-		'http://opds-spec.org/acquisition/open-access',
-		$mimeType
-	));
-	
-	$feed->addEntry($entry);
 }
 
 // Рендерим фид

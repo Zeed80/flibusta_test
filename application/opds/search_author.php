@@ -111,7 +111,7 @@ $authors = $dbh->prepare("SELECT *,
     libavtor.avtorid=libavtorname.avtorid) cnt
     FROM libavtorname
     WHERE lastname ILIKE :q 
-    ORDER BY lastname, firstname
+    ORDER BY lastname COLLATE \"ru_RU.UTF-8\", firstname COLLATE \"ru_RU.UTF-8\"
     LIMIT 100");
 $authors->bindParam(":q", $queryParam);
 $authors->execute();
@@ -132,7 +132,7 @@ while ($a = $authors->fetch()) {
         $entry->addLink(new OPDSLink(
             $webroot . '/opds/author?author_id=' . $a->avtorid,
             'subsection',
-            OPDSVersion::getProfile( 'acquisition')
+            OPDSVersion::getProfile( 'navigation')
         ));
         $feed->addEntry($entry);
     }

@@ -5,12 +5,14 @@ declare(strict_types=1);
  * Класс для создания фасетной навигации в OPDS 1.2 фидах
  */
 class OPDSFacet {
-    protected $facetType;
-    protected $facetGroup;
-    protected $activeFacets = [];
-    protected $facets = [];
+    protected string $facetType;
+    protected string $facetGroup;
+    /** @var string[] */
+    protected array $activeFacets = [];
+    /** @var array<int, array{term: string, label: string, href: string, count: int|null, active: bool}> */
+    protected array $facets = [];
     
-    public function __construct($facetType, $facetGroup = null) {
+    public function __construct(string $facetType, ?string $facetGroup = null) {
         $this->facetType = $facetType;
         $this->facetGroup = $facetGroup ?: $facetType;
     }
@@ -21,10 +23,11 @@ class OPDSFacet {
      * @param string $term Значение фасета
      * @param string $label Отображаемое название
      * @param string $href URL для фильтрации
-     * @param int $count Количество элементов
+     * @param int|null $count Количество элементов
      * @param bool $active Является ли фасет активным
+     * @return $this
      */
-    public function addFacet($term, $label, $href, $count = null, $active = false) {
+    public function addFacet(string $term, string $label, string $href, ?int $count = null, bool $active = false): self {
         $this->facets[] = [
             'term' => $term,
             'label' => $label,
@@ -46,10 +49,11 @@ class OPDSFacet {
      * @param string $term Значение фасета
      * @param string $label Отображаемое название
      * @param string $href URL для фильтрации
-     * @param int $count Количество элементов
+     * @param int|null $count Количество элементов
      * @param bool $active Является ли фасет активным
+     * @return $this
      */
-    public function addFacetValue($term, $label, $href, $count = null, $active = false) {
+    public function addFacetValue(string $term, string $label, string $href, ?int $count = null, bool $active = false): self {
         return $this->addFacet($term, $label, $href, $count, $active);
     }
     
@@ -69,9 +73,12 @@ class OPDSFacet {
         foreach ($this->facets as $facet) {
             $xml .= "\n  <opds:facet";
             $xml .= ' opds:active="' . ($facet['active'] ? 'true' : 'false') . '"';
-            $xml .= ' opds:count="' . (int)$facet['count'] . '"';
+            if ($facet['count'] !== null) {
+                $xml .= ' opds:count="' . (int)$facet['count'] . '"';
+            }
             $xml .= '>';
-            $xml .= "\n   <opds:link";
+            // Используем стандартный Atom link элемент, а не opds:link
+            $xml .= "\n   <link";
             $xml .= ' href="' . htmlspecialchars($facet['href'], ENT_XML1, 'UTF-8') . '"';
             $xml .= ' rel="http://opds-spec.org/facet"';
             $xml .= ' />';
@@ -86,9 +93,9 @@ class OPDSFacet {
     /**
      * Получает активные фасеты
      * 
-     * @return array Массив активных фасетов
+     * @return string[] Массив активных фасетов
      */
-    public function getActiveFacets() {
+    public function getActiveFacets(): array {
         return $this->activeFacets;
     }
 }

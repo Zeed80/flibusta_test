@@ -6,18 +6,27 @@ declare(strict_types=1);
  * Поддерживает пагинацию с ссылками first, previous, next, last
  */
 class OPDSNavigation {
-    protected $currentPage;
-    protected $totalPages;
-    protected $totalItems;
-    protected $itemsPerPage;
-    protected $baseUrl;
-    protected $params;
+    protected int $currentPage;
+    protected int $totalPages;
+    protected int $totalItems;
+    protected int $itemsPerPage;
+    protected string $baseUrl;
+    /** @var array<string, mixed> */
+    protected array $params;
     
-    public function __construct($currentPage, $totalPages, $totalItems, $itemsPerPage, $baseUrl, $params = []) {
-        $this->currentPage = max(1, (int)$currentPage);
-        $this->totalPages = max(1, (int)$totalPages);
-        $this->totalItems = max(0, (int)$totalItems);
-        $this->itemsPerPage = max(1, (int)$itemsPerPage);
+    /**
+     * @param int $currentPage
+     * @param int $totalPages
+     * @param int $totalItems
+     * @param int $itemsPerPage
+     * @param string $baseUrl
+     * @param array<string, mixed> $params
+     */
+    public function __construct(int $currentPage, int $totalPages, int $totalItems, int $itemsPerPage, string $baseUrl, array $params = []) {
+        $this->currentPage = max(1, $currentPage);
+        $this->totalPages = max(1, $totalPages);
+        $this->totalItems = max(0, $totalItems);
+        $this->itemsPerPage = max(1, $itemsPerPage);
         $this->baseUrl = $baseUrl;
         $this->params = $params;
     }
@@ -25,7 +34,7 @@ class OPDSNavigation {
     /**
      * Генерирует навигационные ссылки
      * 
-     * @return array Массив OPDSLink объектов
+     * @return OPDSLink[] Массив OPDSLink объектов
      */
     public function generateLinks(): array {
         $links = [];
@@ -81,7 +90,7 @@ class OPDSNavigation {
      * @param int $page Номер страницы
      * @return string URL
      */
-    protected function buildUrl($page) {
+    protected function buildUrl(int $page): string {
         $params = array_merge($this->params, ['page' => $page]);
         $queryString = http_build_query($params);
         $separator = strpos($this->baseUrl, '?') !== false ? '&' : '?';
@@ -91,9 +100,9 @@ class OPDSNavigation {
     /**
      * Получает метаданные для пагинации (OPDS 1.2)
      * 
-     * @return array Массив с numberOfItems и itemsPerPage
+     * @return array{numberOfItems: int, itemsPerPage: int} Массив с numberOfItems и itemsPerPage
      */
-    public function getMetadata() {
+    public function getMetadata(): array {
         return [
             'numberOfItems' => $this->totalItems,
             'itemsPerPage' => $this->itemsPerPage

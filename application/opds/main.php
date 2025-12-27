@@ -16,20 +16,8 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 
 // Проверяем наличие необходимых глобальных переменных
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
-    http_response_code(500);
-    echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
-  <id>tag:error:internal</id>
-  <title>Внутренняя ошибка сервера</title>
-  <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
-  <entry>
-    <id>tag:error:init</id>
-    <title>Ошибка инициализации</title>
-    <summary type="text">Не удалось инициализировать необходимые переменные</summary>
-  </entry>
-</feed>';
     error_log("OPDS main.php: Missing required global variables (dbh, webroot, or cdt)");
-    exit;
+    OPDSErrorHandler::sendInitializationError();
 }
 
 // Инициализируем кэш OPDS (используем singleton паттерн)
@@ -55,40 +43,14 @@ if ($cachedContent !== null) {
 // Если кэша нет, генерируем фид
 // Заголовок уже установлен выше
 
-// Создаем фид OPDS 1.2
-$feed = OPDSFeedFactory::create();
+// Создаем фид OPDS 1.2 используя сервис
+$feedService = new OPDSFeedService($dbh, $webroot, $cdt);
+$feed = $feedService->createFeed('tag:root', 'Домашняя библиотека', 'navigation');
 
-$feed->setId('tag:root');
-$feed->setTitle('Домашняя библиотека');
-$feed->setUpdated($cdt);
-$feed->setIcon($webroot . '/favicon.ico');
+// Добавляем self ссылку
+$feedService->addSelfLink($feed, $webroot . '/opds/', 'navigation');
 
-// Добавляем ссылки поиска
-$feed->addLink(new OPDSLink(
-    $webroot . '/opds/opensearch.xml.php',
-    'search',
-    'application/opensearchdescription+xml'
-));
-
-$feed->addLink(new OPDSLink(
-    $webroot . '/opds/search?q={searchTerms}',
-    'search',
-    OPDSVersion::getProfile('acquisition')
-));
-
-$feed->addLink(new OPDSLink(
-    $webroot . '/opds/',
-    'start',
-    OPDSVersion::getProfile('navigation')
-));
-
-$feed->addLink(new OPDSLink(
-    $webroot . '/opds/',
-    'self',
-    OPDSVersion::getProfile('navigation')
-));
-
-// Новинки
+// Новинки - это ссылка на acquisition фид (список книг)
 $newEntry = new OPDSEntry();
 $newEntry->setId('tag:root:new');
 $newEntry->setTitle('Новинки');
@@ -101,7 +63,7 @@ $newEntry->addLink(new OPDSLink(
 ));
 $feed->addEntry($newEntry);
 
-// Книжные полки
+// Книжные полки - это navigation фид (список полок)
 $shelfEntry = new OPDSEntry();
 $shelfEntry->setId('tag:root:shelf');
 $shelfEntry->setTitle('Книжные полки');
@@ -110,11 +72,11 @@ $shelfEntry->setContent('Избранное', 'text');
 $shelfEntry->addLink(new OPDSLink(
     $webroot . '/opds/favs/',
     'subsection',
-    OPDSVersion::getProfile('acquisition')
+    OPDSVersion::getProfile('navigation')
 ));
 $feed->addEntry($shelfEntry);
 
-// По жанрам
+// По жанрам - это navigation фид (список категорий жанров)
 $genreEntry = new OPDSEntry();
 $genreEntry->setId('tag:root:genre');
 $genreEntry->setTitle('По жанрам');
@@ -123,11 +85,11 @@ $genreEntry->setContent('Поиск книг по жанрам', 'text');
 $genreEntry->addLink(new OPDSLink(
     $webroot . '/opds/genres',
     'subsection',
-    OPDSVersion::getProfile('acquisition')
+    OPDSVersion::getProfile('navigation')
 ));
 $feed->addEntry($genreEntry);
 
-// По авторам
+// По авторам - это navigation фид (индекс авторов)
 $authorsEntry = new OPDSEntry();
 $authorsEntry->setId('tag:root:authors');
 $authorsEntry->setTitle('По авторам');
@@ -136,11 +98,11 @@ $authorsEntry->setContent('Поиск книг по авторам', 'text');
 $authorsEntry->addLink(new OPDSLink(
     $webroot . '/opds/authorsindex',
     'subsection',
-    OPDSVersion::getProfile('acquisition')
+    OPDSVersion::getProfile('navigation')
 ));
 $feed->addEntry($authorsEntry);
 
-// По сериям
+// По сериям - это navigation фид (индекс серий)
 $sequencesEntry = new OPDSEntry();
 $sequencesEntry->setId('tag:root:sequences');
 $sequencesEntry->setTitle('По сериям');
@@ -149,7 +111,7 @@ $sequencesEntry->setContent('Поиск книг по сериям', 'text');
 $sequencesEntry->addLink(new OPDSLink(
     $webroot . '/opds/sequencesindex',
     'subsection',
-    OPDSVersion::getProfile('acquisition')
+    OPDSVersion::getProfile('navigation')
 ));
 $feed->addEntry($sequencesEntry);
 

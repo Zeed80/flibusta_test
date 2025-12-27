@@ -15,10 +15,27 @@ spl_autoload_register(function ($class) {
         'OPDSFacet' => $baseDir . 'OPDSFacet.php',
         'OPDSFeedFactory' => $baseDir . 'OPDSFeedFactory.php',
         'OPDSCache' => $baseDir . 'OPDSCache.php',
+        'OPDSGroup' => $baseDir . 'OPDSGroup.php',
+        'OPDSErrorHandler' => $baseDir . 'OPDSErrorHandler.php',
+        'OPDSValidator' => $baseDir . 'OPDSValidator.php',
     ];
     
     if (isset($coreClasses[$class])) {
         require_once $coreClasses[$class];
+        return;
+    }
+    
+    // Сервисы
+    $servicesPath = $baseDir . '../services/';
+    $serviceClasses = [
+        'OPDSService' => $servicesPath . 'OPDSService.php',
+        'OPDSFeedService' => $servicesPath . 'OPDSFeedService.php',
+        'OPDSBookService' => $servicesPath . 'OPDSBookService.php',
+        'OPDSNavigationService' => $servicesPath . 'OPDSNavigationService.php',
+    ];
+    
+    if (isset($serviceClasses[$class])) {
+        require_once $serviceClasses[$class];
         return;
     }
     

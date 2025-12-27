@@ -5,68 +5,74 @@ declare(strict_types=1);
  * Класс для создания ссылок в OPDS 1.2 фидах
  */
 class OPDSLink {
-    protected $href;
-    protected $rel;
-    protected $type;
-    protected $title;
-    protected $hrefLang;
-    protected $length;
-    protected $properties = [];
+    protected string $href;
+    protected string $rel;
+    protected ?string $type = null;
+    protected ?string $title = null;
+    protected ?string $hrefLang = null;
+    protected ?int $length = null;
+    /** @var array<string, string> */
+    protected array $properties = [];
     
-    public function __construct($href, $rel, $type = null, $title = null) {
+    public function __construct(string $href, string $rel, ?string $type = null, ?string $title = null) {
         $this->href = $href;
         $this->rel = $rel;
         $this->type = $type;
         $this->title = $title;
     }
     
-    public function setHref($href) {
+    public function setHref(string $href): self {
         $this->href = $href;
         return $this;
     }
     
-    public function getHref() {
+    public function getHref(): string {
         return $this->href;
     }
     
-    public function setRel($rel) {
+    public function setRel(string $rel): self {
         $this->rel = $rel;
         return $this;
     }
     
-    public function getRel() {
+    public function getRel(): string {
         return $this->rel;
     }
     
-    public function setType($type) {
+    public function setType(?string $type): self {
         $this->type = $type;
         return $this;
     }
     
-    public function getType() {
+    public function getType(): ?string {
         return $this->type;
     }
     
-    public function setTitle($title) {
-        $this->title = function_exists('normalize_text_for_opds') ? normalize_text_for_opds($title) : $title;
+    public function setTitle(?string $title): self {
+        $this->title = $title && function_exists('normalize_text_for_opds') ? normalize_text_for_opds($title) : $title;
         return $this;
     }
     
-    public function getTitle() {
+    public function getTitle(): ?string {
         return $this->title;
     }
     
-    public function setHrefLang($lang) {
+    public function setHrefLang(?string $lang): self {
         $this->hrefLang = $lang;
         return $this;
     }
     
-    public function setLength($length) {
+    public function setLength(?int $length): self {
         $this->length = $length;
         return $this;
     }
     
-    public function addProperty($name, $value) {
+    /**
+     * @param string $name
+     * @param string $value
+     * @return $this
+     */
+    public function addProperty(string $name, string $value): self {
         $this->properties[$name] = $value;
         return $this;
     }
