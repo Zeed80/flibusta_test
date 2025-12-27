@@ -15,13 +15,14 @@
 
 ```bash
 # Подключитесь к серверу через SSH, затем:
-docker-compose exec postgres psql -U flibusta -d flibusta <<EOF
-CREATE COLLATION IF NOT EXISTS "ru_RU.UTF-8" (
-    LOCALE = 'ru_RU.UTF-8',
-    PROVIDER = 'libc'
-);
-EOF
+# Вариант A: Используя SQL файл (рекомендуется)
+docker-compose exec -T postgres psql -U flibusta -d flibusta -f /application/tools/try_create_collation.sql
+
+# Вариант B: Прямая команда (без heredoc)
+docker-compose exec -T postgres psql -U flibusta -d flibusta -c "CREATE COLLATION IF NOT EXISTS \"ru_RU.UTF-8\" (LOCALE = 'ru_RU.UTF-8', PROVIDER = 'libc');"
 ```
+
+**Примечание:** Используйте флаг `-T` (без TTY) для команд без интерактивного ввода.
 
 Если получите ошибку `insufficient_privilege` или `permission denied`, переходите к следующим способам.
 
