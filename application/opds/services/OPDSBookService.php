@@ -194,20 +194,9 @@ class OPDSBookService extends OPDSService {
      * @return string ORDER BY с примененным COLLATE
      */
     protected function applyRussianCollation(string $orderBy): string {
-        // Проверяем, какие поля нужно сортировать с русской локализацией
-        $patterns = [
-            '/\btitle\b/i' => 'b.title COLLATE "ru_RU.UTF-8"',
-            '/\blastname\b/i' => 'lastname COLLATE "ru_RU.UTF-8"',
-            '/\bfirstname\b/i' => 'firstname COLLATE "ru_RU.UTF-8"',
-            '/\bseqname\b/i' => 'seqname COLLATE "ru_RU.UTF-8"',
-            '/\bgenredesc\b/i' => 'genredesc COLLATE "ru_RU.UTF-8"',
-        ];
-        
-        $result = $orderBy;
-        foreach ($patterns as $pattern => $replacement) {
-            $result = preg_replace($pattern, $replacement, $result);
-        }
-        
-        return $result;
+        // Возвращаем ORDER BY без изменений
+        // Используется collation базы данных по умолчанию
+        // Если нужна специальная сортировка, можно создать collation в БД
+        return $orderBy;
     }
 }

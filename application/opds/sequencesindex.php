@@ -132,7 +132,7 @@ while ($ach = $ai->fetchObject()) {
 		$sq = $dbh->prepare("SELECT SeqName, SeqId 
 				from libseqname 
 				where UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) = :pattern
-				ORDER BY UPPER(SeqName) COLLATE \"ru_RU.UTF-8\"");
+				ORDER BY UPPER(SeqName)");
 		$sq->bindParam(":pattern", $alpha);
 		$sq->execute();
 		while($s = $sq->fetchObject()){

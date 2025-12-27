@@ -111,7 +111,7 @@ $authors = $dbh->prepare("SELECT *,
     libavtor.avtorid=libavtorname.avtorid) cnt
     FROM libavtorname
     WHERE lastname ILIKE :q 
-    ORDER BY lastname COLLATE \"ru_RU.UTF-8\", firstname COLLATE \"ru_RU.UTF-8\"
+    ORDER BY lastname, firstname
     LIMIT 100");
 $authors->bindParam(":q", $queryParam);
 $authors->execute();

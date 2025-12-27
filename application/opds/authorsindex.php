@@ -99,7 +99,7 @@ if ($length_letters > 0) {
 		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
 		AND " . $alphaExpr . " SIMILAR TO :pattern
 		GROUP BY " . $alphaExpr . "
-		ORDER BY " . $alphaExpr . " COLLATE \"ru_RU.UTF-8\"";
+		ORDER BY " . $alphaExpr;
 	$ai = $dbh->prepare($query);
 	$ai->bindParam(":pattern", $pattern);
 	$ai->execute();
@@ -115,7 +115,7 @@ if ($length_letters > 0) {
 		AND SUBSTR(TRIM(LastName), 1, 1) ~ '^[[:alpha:]]'
 		GROUP BY " . $alphaExpr . "
 		HAVING " . $alphaExpr . " ~ '^[A-ZА-ЯЁ]'
-		ORDER BY " . $alphaExpr . " COLLATE \"ru_RU.UTF-8\"";
+		ORDER BY " . $alphaExpr;
 	$ai = $dbh->query($query);
 }
 

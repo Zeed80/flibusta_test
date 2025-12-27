@@ -89,12 +89,12 @@ class OPDSNavigationService extends OPDSService {
         
         switch ($sortType) {
             case 'title':
-                // Сортировка по названию с русским алфавитом
-                return "b.title COLLATE \"ru_RU.UTF-8\" $direction";
+                // Сортировка по названию (используется collation базы данных)
+                return "b.title $direction";
                 
             case 'author':
-                // Сортировка по автору с русским алфавитом
-                return "lastname COLLATE \"ru_RU.UTF-8\" $direction, firstname COLLATE \"ru_RU.UTF-8\" $direction";
+                // Сортировка по автору (используется collation базы данных)
+                return "lastname $direction, firstname $direction";
                 
             case 'year':
                 // Сортировка по году издания
