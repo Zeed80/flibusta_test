@@ -7,8 +7,7 @@ if (function_exists('opcache_invalidate')) {
 }
 
 /**
- * Класс для создания записей в OPDS фидах
- * Поддерживает OPDS 1.0 и 1.2
+ * Класс для создания записей в OPDS 1.2 фидах
  */
 class OPDSEntry {
     protected $id;
@@ -108,7 +107,7 @@ class OPDSEntry {
         return $this;
     }
     
-    public function render($version = '1.2') {
+    public function render(): string {
         $xml = '<entry>';
         
         if ($this->id) {
@@ -191,7 +190,7 @@ class OPDSEntry {
         }
         
         foreach ($this->links as $link) {
-            $xml .= "\n " . $link->render($version);
+            $xml .= "\n " . $link->render();
         }
         
         // Добавляем метаданные (dc:, opds: и т.д.)

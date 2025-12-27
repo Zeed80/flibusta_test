@@ -13,7 +13,7 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
     http_response_code(500);
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:internal</id>
   <title>Внутренняя ошибка сервера</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -38,7 +38,7 @@ if ($q == '') {
     http_response_code(400);
     header('Content-Type: application/atom+xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:search:author:empty</id>
   <title>Ошибка поиска</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -52,7 +52,7 @@ if ($q == '') {
 }
 
 // Создаем ключ кэша для поиска авторов
-$cacheKey = 'opds_search_author_' . md5($q) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_search_author_' . md5($q) . '_v2';
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -68,9 +68,8 @@ if ($cachedContent !== null) {
 }
 
 // Если кэша нет или устарел, генерируем фид
-// Создаем фид с автоматическим определением версии
+// Создаем фид OPDS 1.2
 $feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
 
 // Настройка фида
 $feed->setId('tag:root:search:author:' . md5($q));
@@ -88,19 +87,19 @@ $feed->addLink(new OPDSLink(
 $feed->addLink(new OPDSLink(
     $webroot . '/opds/search?by=author&searchTerm={searchTerms}',
     'search',
-    OPDSVersion::getProfile($version, 'acquisition')
+    OPDSVersion::getProfile( 'acquisition')
 ));
 
 $feed->addLink(new OPDSLink(
     $webroot . '/opds/',
     'start',
-    OPDSVersion::getProfile($version, 'navigation')
+    OPDSVersion::getProfile( 'navigation')
 ));
 
 $feed->addLink(new OPDSLink(
     $webroot . '/opds/authorsindex',
     'up',
-    OPDSVersion::getProfile($version, 'navigation')
+    OPDSVersion::getProfile( 'navigation')
 ));
 
 // Полнотекстовый поиск по фамилии авторов
@@ -133,7 +132,7 @@ while ($a = $authors->fetch()) {
         $entry->addLink(new OPDSLink(
             $webroot . '/opds/author?author_id=' . $a->avtorid,
             'subsection',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($entry);
     }

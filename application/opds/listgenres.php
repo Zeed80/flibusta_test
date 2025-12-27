@@ -13,7 +13,7 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
     http_response_code(500);
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:internal</id>
   <title>Внутренняя ошибка сервера</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -38,7 +38,7 @@ if ($genreMeta == '') {
     http_response_code(400);
     header('Content-Type: application/atom+xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:listgenres:missing</id>
   <title>Ошибка</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -55,7 +55,7 @@ if ($genreMeta == '') {
 $genreMeta = htmlspecialchars($genreMeta, ENT_QUOTES, 'UTF-8');
 
 // Создаем ключ кэша для списка жанров
-$cacheKey = 'opds_listgenres_' . md5($genreMeta) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_listgenres_' . md5($genreMeta) . '_v2';
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -71,9 +71,8 @@ if ($cachedContent !== null) {
 }
 
 // Если кэша нет или устарел, генерируем фид
-// Создаем фид с автоматическим определением версии
+// Создаем фид OPDS 1.2
 $feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
 
 $feed->setId('tag:root:listgenres');
 $feed->setTitle("Жанры в $genreMeta");
@@ -90,19 +89,19 @@ $feed->addLink(new OPDSLink(
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/search?q={searchTerms}',
 	'search',
-	OPDSVersion::getProfile($version, 'acquisition')
+	OPDSVersion::getProfile( 'acquisition')
 ));
 
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/',
 	'start',
-	OPDSVersion::getProfile($version, 'navigation')
+	OPDSVersion::getProfile( 'navigation')
 ));
 
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/listgenres/?id=' . urlencode($genreMeta),
 	'self',
-	OPDSVersion::getProfile($version, 'navigation')
+	OPDSVersion::getProfile( 'navigation')
 ));
 
 $gs = $dbh->prepare("SELECT *,
@@ -121,7 +120,7 @@ while ($g = $gs->fetch()) {
 	$entry->addLink(new OPDSLink(
 		$webroot . '/opds/list/?genre_id=' . (int)$g->genreid,
 		'http://opds-spec.org/acquisition',
-		OPDSVersion::getProfile($version, 'acquisition')
+		OPDSVersion::getProfile( 'acquisition')
 	));
 	$feed->addEntry($entry);
 }

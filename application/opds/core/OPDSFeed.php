@@ -1,10 +1,11 @@
 <?php
+declare(strict_types=1);
+
 /**
- * Базовый класс для генерации OPDS фидов
- * Абстрактный класс, используется как основа для версионных реализаций
+ * Базовый класс для генерации OPDS 1.2 фидов
+ * Абстрактный класс, используется как основа для реализации OPDS2Feed
  */
 abstract class OPDSFeed {
-    protected $version;
     protected $id;
     protected $title;
     protected $updated;
@@ -15,18 +16,8 @@ abstract class OPDSFeed {
     protected $navigation = null;
     protected $metadata = [];
     
-    public function __construct($version = '1.2') {
-        $this->version = $version;
+    public function __construct() {
         $this->updated = date('c');
-    }
-    
-    public function setVersion($version) {
-        $this->version = $version;
-        return $this;
-    }
-    
-    public function getVersion() {
-        return $this->version;
     }
     
     public function setId($id) {
@@ -99,21 +90,21 @@ abstract class OPDSFeed {
     abstract public function render();
     
     /**
-     * Получает namespace для текущей версии
+     * Получает namespace для OPDS 1.2
      * 
      * @return string Namespace URI
      */
-    protected function getNamespace() {
-        return OPDSVersion::getNamespace($this->version);
+    protected function getNamespace(): string {
+        return OPDSVersion::getNamespace();
     }
     
     /**
-     * Получает profile для текущей версии
+     * Получает profile для OPDS 1.2
      * 
      * @param string $kind Тип каталога
      * @return string Profile строка
      */
-    protected function getProfile($kind = 'acquisition') {
-        return OPDSVersion::getProfile($this->version, $kind);
+    protected function getProfile(string $kind = 'acquisition'): string {
+        return OPDSVersion::getProfile($kind);
     }
 }

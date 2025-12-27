@@ -567,20 +567,19 @@ function formatSizeUnits($bytes)
 }
 
 /**
- * Создает OPDSEntry с acquisition ссылками для OPDS
+ * Создает OPDSEntry с acquisition ссылками для OPDS 1.2
  * 
  * @param string $id ID записи
  * @param string $title Название
  * @param string $updated Дата обновления
  * @param string $content Контент (описание)
  * @param string $href URL ресурса
- * @param string $version Версия OPDS ('1.0' или '1.2')
  * @param string $rel Rel тип (по умолчанию 'subsection' для навигации)
  * @param string $contentType MIME тип
  * @param string $linkTitle Заголовок ссылки
  * @return OPDSEntry
  */
-function opds_acquisition_entry($id, $title, $updated, $content, $href, $version = '1.2', $rel = 'subsection', $contentType = null, $linkTitle = '') {
+function opds_acquisition_entry($id, $title, $updated, $content, $href, $rel = 'subsection', $contentType = null, $linkTitle = '') {
 	global $webroot;
 	
 	$entry = new OPDSEntry();
@@ -592,7 +591,7 @@ function opds_acquisition_entry($id, $title, $updated, $content, $href, $version
 		$entry->setContent($content, 'text');
 	}
 	
-	$profile = OPDSVersion::getProfile($version, 'acquisition');
+	$profile = OPDSVersion::getProfile('acquisition');
 	$entry->addLink(new OPDSLink(
 		$href,
 		$rel,
@@ -608,10 +607,9 @@ function opds_acquisition_entry($id, $title, $updated, $content, $href, $version
  * 
  * @param object $b Объект книги из БД
  * @param string $webroot Базовый URL
- * @param string $version Версия OPDS ('1.0' или '1.2')
  * @return OPDSEntry
  */
-function opds_book_entry($b, $webroot = '', $version = '1.2') {
+function opds_book_entry($b, $webroot = '') {
 	global $dbh;
 	
 	// Поддерживаем оба варианта имен полей (BookId и bookid)
@@ -684,7 +682,7 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 			$link = new OPDSLink(
 				$webroot . '/opds/list?seq_id=' . $seqId,
 				'related',
-				OPDSVersion::getProfile($version, 'acquisition'),
+				OPDSVersion::getProfile('acquisition'),
 				'Все книги серии "' . $ssq . '"'
 			);
 			$entry->addLink($link);
@@ -714,7 +712,7 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
 			$link = new OPDSLink(
 				$webroot . '/opds/list?author_id=' . $authorId,
 				'related',
-				OPDSVersion::getProfile($version, 'acquisition'),
+				OPDSVersion::getProfile('acquisition'),
 				'Все книги автора ' . $normalizedAuthorName
 			);
 			$entry->addLink($link);
@@ -826,12 +824,8 @@ function opds_book_entry($b, $webroot = '', $version = '1.2') {
  * @deprecated Используйте opds_book_entry() вместо этого
  */
 function opds_book($b, $webroot = '') {
-	$version = OPDSVersion::detect();
-	if ($version === OPDSVersion::VERSION_AUTO) {
-		$version = OPDSVersion::VERSION_1_2;
-	}
-	$entry = opds_book_entry($b, $webroot, $version);
-	echo $entry->render($version);
+	$entry = opds_book_entry($b, $webroot);
+	echo $entry->render();
 }
 
 /**

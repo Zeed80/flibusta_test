@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 require_once(__DIR__ . '/../core/OPDSFeed.php');
 require_once(__DIR__ . '/../core/OPDSLink.php');
 require_once(__DIR__ . '/../core/OPDSEntry.php');
@@ -13,7 +15,7 @@ class OPDS2Feed extends OPDSFeed {
     protected $rights;
     
     public function __construct() {
-        parent::__construct('1.2');
+        parent::__construct();
     }
     
     public function setSubtitle($subtitle) {
@@ -61,12 +63,12 @@ class OPDS2Feed extends OPDSFeed {
         
         // Добавляем ссылки
         foreach ($this->links as $link) {
-            $xml .= "\n " . $link->render($this->version);
+            $xml .= "\n " . $link->render();
         }
         
         // Добавляем навигационные ссылки
         if ($this->navigation) {
-            $xml .= $this->navigation->render($this->version);
+            $xml .= $this->navigation->render();
             
             // Добавляем метаданные пагинации для OPDS 1.2
             $navMetadata = $this->navigation->getMetadata();
@@ -74,9 +76,9 @@ class OPDS2Feed extends OPDSFeed {
             $xml .= "\n <opds:itemsPerPage>" . (int)$navMetadata['itemsPerPage'] . "</opds:itemsPerPage>";
         }
         
-        // Добавляем фасеты (только для OPDS 1.2)
+        // Добавляем фасеты (OPDS 1.2)
         foreach ($this->facets as $facet) {
-            $xml .= $facet->render($this->version);
+            $xml .= $facet->render();
         }
         
         // Добавляем метаданные
@@ -90,7 +92,7 @@ class OPDS2Feed extends OPDSFeed {
         
         // Добавляем записи
         foreach ($this->entries as $entry) {
-            $xml .= "\n" . $entry->render($this->version);
+            $xml .= "\n" . $entry->render();
         }
         
         $xml .= "\n</feed>";

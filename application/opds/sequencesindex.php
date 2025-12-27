@@ -13,7 +13,7 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
     http_response_code(500);
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:internal</id>
   <title>Внутренняя ошибка сервера</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -35,7 +35,7 @@ $letters = isset($_GET['letters']) ? trim($_GET['letters']) : '';
 
 // Создаем ключ кэша для индекса серий
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_sequencesindex_v3_' . md5($letters) . '_' . OPDSVersion::detect();
+$cacheKey = 'opds_sequencesindex_v4_' . md5($letters);
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
@@ -51,9 +51,8 @@ if ($cachedContent !== null) {
 }
 
 // Если кэша нет или устарел, генерируем фид
-// Создаем фид с автоматическим определением версии
+// Создаем фид OPDS 1.2
 $feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
 
 $feed->setId('tag:root:sequences');
 $feed->setTitle('Книги по сериям');
@@ -70,19 +69,19 @@ $feed->addLink(new OPDSLink(
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/authorsindex?letters={searchTerms}',
 	'search',
-	OPDSVersion::getProfile($version, 'acquisition')
+	OPDSVersion::getProfile( 'acquisition')
 ));
 
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds',
 	'start',
-	OPDSVersion::getProfile($version, 'navigation')
+	OPDSVersion::getProfile( 'navigation')
 ));
 
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/sequencesindex' . ($letters ? '?letters=' . urlencode($letters) : ''),
 	'self',
-	OPDSVersion::getProfile($version, 'navigation')
+	OPDSVersion::getProfile( 'navigation')
 ));
 
 $length_letters = mb_strlen($letters, 'UTF-8');
@@ -125,7 +124,7 @@ while ($ach = $ai->fetchObject()) {
 		$entry->addLink(new OPDSLink(
 			$webroot . '/opds/sequencesindex?letters=' . urlencode($alpha),
 			'subsection',
-			OPDSVersion::getProfile($version, 'acquisition')
+			OPDSVersion::getProfile( 'acquisition')
 		));
 		$feed->addEntry($entry);
 	} else {
@@ -151,7 +150,7 @@ while ($ach = $ai->fetchObject()) {
 			$entry->addLink(new OPDSLink(
 				$webroot . '/opds/list?seq_id=' . (int)$s->seqid,
 				'http://opds-spec.org/acquisition',
-				OPDSVersion::getProfile($version, 'acquisition')
+				OPDSVersion::getProfile( 'acquisition')
 			));
 			$feed->addEntry($entry);
 		}

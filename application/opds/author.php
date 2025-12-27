@@ -13,7 +13,7 @@ header('Content-Type: application/atom+xml; charset=utf-8');
 if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
     http_response_code(500);
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:internal</id>
   <title>Внутренняя ошибка сервера</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -35,7 +35,7 @@ if ($author_id == 0) {
     http_response_code(400);
     header('Content-Type: application/atom+xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:author:missing</id>
   <title>Ошибка</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -76,9 +76,8 @@ if ($cachedContent !== null) {
 // Если кэша нет или устарел, генерируем фид
 header('Content-Type: application/atom+xml; charset=utf-8');
 
-// Создаем фид с автоматическим определением версии
+// Создаем фид OPDS 1.2
 $feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
 
 if (! $seq_mode) {  
     $stmt = $dbh->prepare("SELECT a.LastName as LastName, a.MiddleName as MiddleName, a.FirstName as FirstName, a.NickName as NickName,
@@ -114,13 +113,13 @@ if ($a = $stmt->fetchObject()){
         $feed->addLink(new OPDSLink(
             $webroot . '/opds/search?by=author&searchTerm={searchTerms}',
             'search',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         
         $feed->addLink(new OPDSLink(
             $webroot . '/opds',
             'start',
-            OPDSVersion::getProfile($version, 'navigation')
+            OPDSVersion::getProfile( 'navigation')
         ));
         
         $sequences = $dbh->prepare("SELECT distinct sn.seqid seqid, sn.seqname seqname
@@ -141,7 +140,7 @@ if ($a = $stmt->fetchObject()){
             $entry->addLink(new OPDSLink(
                 $webroot . '/opds/list?seq_id=' . $seq->seqid,
                 'subsection',
-                OPDSVersion::getProfile($version, 'acquisition')
+                OPDSVersion::getProfile( 'acquisition')
             ));
             $feed->addEntry($entry);
         }
@@ -160,13 +159,13 @@ if ($a = $stmt->fetchObject()){
         $feed->addLink(new OPDSLink(
             $webroot . '/opds/search?by=author&searchTerm={searchTerms}',
             'search',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         
         $feed->addLink(new OPDSLink(
             $webroot . '/opds',
             'start',
-            OPDSVersion::getProfile($version, 'navigation')
+            OPDSVersion::getProfile( 'navigation')
         ));
 
         if ($a->body != '') {
@@ -198,19 +197,19 @@ if ($a = $stmt->fetchObject()){
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
                 'subsection',
-                OPDSVersion::getProfile($version, 'acquisition'),
+                OPDSVersion::getProfile( 'acquisition'),
                 'Книги автора по алфавиту'
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
                 'subsection',
-                OPDSVersion::getProfile($version, 'acquisition'),
+                OPDSVersion::getProfile( 'acquisition'),
                 'Книжные серии с произведениями автора'
             ));
             $bioEntry->addLink(new OPDSLink(
                 $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
                 'subsection',
-                OPDSVersion::getProfile($version, 'acquisition'),
+                OPDSVersion::getProfile( 'acquisition'),
                 'Книги автора вне серий'
             ));
             $feed->addEntry($bioEntry);
@@ -224,7 +223,7 @@ if ($a = $stmt->fetchObject()){
         $allBooksEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id,
             'subsection',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($allBooksEntry);
         
@@ -236,7 +235,7 @@ if ($a = $stmt->fetchObject()){
         $alphabetEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id . '&display_type=alphabet',
             'subsection',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($alphabetEntry);
         
@@ -248,7 +247,7 @@ if ($a = $stmt->fetchObject()){
         $yearEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id . '&display_type=year',
             'subsection',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($yearEntry);
         
@@ -260,7 +259,7 @@ if ($a = $stmt->fetchObject()){
         $seqEntry->addLink(new OPDSLink(
             $webroot . '/opds/author?author_id=' . $author_id . '&seq=1',
             'subsection',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($seqEntry);
         
@@ -272,7 +271,7 @@ if ($a = $stmt->fetchObject()){
         $sequencelessEntry->addLink(new OPDSLink(
             $webroot . '/opds/list?author_id=' . $author_id . '&display_type=sequenceless',
             'subsection',
-            OPDSVersion::getProfile($version, 'acquisition')
+            OPDSVersion::getProfile( 'acquisition')
         ));
         $feed->addEntry($sequencelessEntry);
     } 
@@ -280,7 +279,7 @@ if ($a = $stmt->fetchObject()){
     http_response_code(404);
     header('Content-Type: application/atom+xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:author:not_found</id>
   <title>Ошибка</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>

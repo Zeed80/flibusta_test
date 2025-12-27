@@ -1,6 +1,8 @@
 <?php
+declare(strict_types=1);
+
 /**
- * Класс для генерации навигационных ссылок в OPDS фидах
+ * Класс для генерации навигационных ссылок в OPDS 1.2 фидах
  * Поддерживает пагинацию с ссылками first, previous, next, last
  */
 class OPDSNavigation {
@@ -23,10 +25,9 @@ class OPDSNavigation {
     /**
      * Генерирует навигационные ссылки
      * 
-     * @param string $version Версия OPDS
      * @return array Массив OPDSLink объектов
      */
-    public function generateLinks($version = '1.2') {
+    public function generateLinks(): array {
         $links = [];
         
         // Ссылка на первую страницу
@@ -34,7 +35,7 @@ class OPDSNavigation {
             $firstLink = new OPDSLink(
                 $this->buildUrl(1),
                 'first',
-                OPDSVersion::getProfile($version, 'acquisition')
+                OPDSVersion::getProfile('acquisition')
             );
             $links[] = $firstLink;
         }
@@ -45,7 +46,7 @@ class OPDSNavigation {
             $prevLink = new OPDSLink(
                 $this->buildUrl($prevPage),
                 'previous',
-                OPDSVersion::getProfile($version, 'acquisition')
+                OPDSVersion::getProfile('acquisition')
             );
             $links[] = $prevLink;
         }
@@ -56,7 +57,7 @@ class OPDSNavigation {
             $nextLink = new OPDSLink(
                 $this->buildUrl($nextPage),
                 'next',
-                OPDSVersion::getProfile($version, 'acquisition')
+                OPDSVersion::getProfile('acquisition')
             );
             $links[] = $nextLink;
         }
@@ -66,7 +67,7 @@ class OPDSNavigation {
             $lastLink = new OPDSLink(
                 $this->buildUrl($this->totalPages),
                 'last',
-                OPDSVersion::getProfile($version, 'acquisition')
+                OPDSVersion::getProfile('acquisition')
             );
             $links[] = $lastLink;
         }
@@ -102,15 +103,14 @@ class OPDSNavigation {
     /**
      * Рендерит навигационные ссылки в XML
      * 
-     * @param string $version Версия OPDS
      * @return string XML строка
      */
-    public function render($version = '1.2') {
+    public function render(): string {
         $xml = '';
-        $links = $this->generateLinks($version);
+        $links = $this->generateLinks();
         
         foreach ($links as $link) {
-            $xml .= "\n " . $link->render($version);
+            $xml .= "\n " . $link->render();
         }
         
         return $xml;

@@ -1,7 +1,8 @@
 <?php
+declare(strict_types=1);
+
 /**
- * Класс для создания фасетной навигации в OPDS фидах
- * Поддерживает OPDS 1.2 faceted navigation
+ * Класс для создания фасетной навигации в OPDS 1.2 фидах
  */
 class OPDSFacet {
     protected $facetType;
@@ -53,13 +54,12 @@ class OPDSFacet {
     }
     
     /**
-     * Рендерит фасетную группу в XML
+     * Рендерит фасетную группу в XML (OPDS 1.2)
      * 
-     * @param string $version Версия OPDS
      * @return string XML строка
      */
-    public function render($version = '1.2') {
-        if ($version !== '1.2' || empty($this->facets)) {
+    public function render(): string {
+        if (empty($this->facets)) {
             return '';
         }
         

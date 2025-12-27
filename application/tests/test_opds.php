@@ -568,44 +568,14 @@ function testPagination() {
 }
 
 /**
- * Тест: Параметр версии OPDS
+ * Тест: OPDS 1.2 версия
  */
 function testOPDSVersion() {
     global $baseUrl;
-    $testName = 'Принудительная версия OPDS 1.0';
+    $testName = 'Проверка OPDS 1.2';
     testHeader($testName);
     
-    // Тестируем принудительную версию 1.0
-    $response = httpGet('/?opds_version=1.0', $testName);
-    
-    if (isset($response['error'])) {
-        testResult($testName, false, "Ошибка curl: " . $response['error']);
-        return;
-    }
-    
-    if ($response['code'] !== 200) {
-        testResult($testName, false, "HTTP код: {$response['code']}");
-        return;
-    }
-    
-    // Проверяем что версия 1.0 используется
-    if (strpos($response['content'], 'http://opds-spec.org/2010/catalog') === false) {
-        testResult($testName, false, "Неверная версия OPDS (ожидался OPDS 1.0 namespace)");
-        return;
-    }
-    
-    testResult($testName, true, "Принудительная версия OPDS 1.0 работает");
-}
-
-/**
- * Тест: OPDS 1.2 версия (автоматическое определение)
- */
-function testOPDS12Version() {
-    global $baseUrl;
-    $testName = 'Автоматическое определение OPDS 1.2';
-    testHeader($testName);
-    
-    // FBReader должен автоматически определять OPDS 1.2
+    // Тестируем версию 1.2 (единственная поддерживаемая)
     $response = httpGet('/', $testName);
     
     if (isset($response['error'])) {
@@ -618,16 +588,43 @@ function testOPDS12Version() {
         return;
     }
     
-    // Проверяем что используется OPDS 1.2 или 1.0 (оба валидны)
-    $hasOpds12 = strpos($response['content'], 'https://specs.opds.io/opds-1.2') !== false;
-    $hasOpds10 = strpos($response['content'], 'http://opds-spec.org/2010/catalog') !== false;
-    
-    if (!$hasOpds12 && !$hasOpds10) {
-        testResult($testName, false, "Не используется OPDS namespace (ни 1.0, ни 1.2)");
+    // Проверяем что используется OPDS 1.2
+    if (strpos($response['content'], 'https://specs.opds.io/opds-1.2') === false) {
+        testResult($testName, false, "Неверная версия OPDS (ожидался OPDS 1.2 namespace)");
         return;
     }
     
-    testResult($testName, true, "Автоматическое определение OPDS версии работает (" . ($hasOpds12 ? "1.2" : "1.0") . ")");
+    testResult($testName, true, "OPDS 1.2 работает корректно");
+}
+
+/**
+ * Тест: OPDS 1.2 версия
+ */
+function testOPDS12Version() {
+    global $baseUrl;
+    $testName = 'Проверка OPDS 1.2';
+    testHeader($testName);
+    
+    // Проверяем что используется OPDS 1.2
+    $response = httpGet('/', $testName);
+    
+    if (isset($response['error'])) {
+        testResult($testName, false, "Ошибка curl: " . $response['error']);
+        return;
+    }
+    
+    if ($response['code'] !== 200) {
+        testResult($testName, false, "HTTP код: {$response['code']}");
+        return;
+    }
+    
+    // Проверяем что используется OPDS 1.2
+    if (strpos($response['content'], 'https://specs.opds.io/opds-1.2') === false) {
+        testResult($testName, false, "Не используется OPDS 1.2 namespace");
+        return;
+    }
+    
+    testResult($testName, true, "OPDS 1.2 работает корректно");
 }
 
 /**

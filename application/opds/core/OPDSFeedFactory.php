@@ -1,43 +1,18 @@
 <?php
+declare(strict_types=1);
+
 require_once(__DIR__ . '/autoload.php');
 
 /**
- * Фабрика для создания OPDS фидов с автоматическим определением версии
+ * Фабрика для создания OPDS 1.2 фидов
  */
 class OPDSFeedFactory {
     /**
-     * Создает фид с автоматическим определением версии клиента
+     * Создает OPDS 1.2 фид
      * 
-     * @param string|null $userAgent User-Agent заголовок
-     * @param string|null $accept Accept заголовок
-     * @return OPDSFeed Экземпляр фида (OPDS1Feed или OPDS2Feed)
+     * @return OPDSFeed Экземпляр OPDS2Feed
      */
-    public static function create($userAgent = null, $accept = null) {
-        $version = OPDSVersion::detect($userAgent, $accept);
-        
-        // Если версия auto, используем 1.0 по умолчанию для максимальной совместимости
-        if ($version === OPDSVersion::VERSION_AUTO) {
-            $version = OPDSVersion::VERSION_1_0;
-        }
-        
-        if ($version === OPDSVersion::VERSION_1_0) {
-            return new OPDS1Feed();
-        }
-        
-        return new OPDS2Feed();
-    }
-    
-    /**
-     * Создает фид указанной версии
-     * 
-     * @param string $version Версия OPDS ('1.0' или '1.2')
-     * @return OPDSFeed Экземпляр фида
-     */
-    public static function createVersion($version) {
-        if ($version === OPDSVersion::VERSION_1_0) {
-            return new OPDS1Feed();
-        }
-        
+    public static function create(): OPDSFeed {
         return new OPDS2Feed();
     }
 }

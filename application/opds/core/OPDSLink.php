@@ -1,7 +1,8 @@
 <?php
+declare(strict_types=1);
+
 /**
- * Класс для создания ссылок в OPDS фидах
- * Поддерживает OPDS 1.0 и 1.2
+ * Класс для создания ссылок в OPDS 1.2 фидах
  */
 class OPDSLink {
     protected $href;
@@ -70,7 +71,7 @@ class OPDSLink {
         return $this;
     }
     
-    public function render($version = '1.2') {
+    public function render(): string {
         $href = htmlspecialchars($this->href, ENT_XML1, 'UTF-8');
         $rel = htmlspecialchars($this->rel, ENT_XML1, 'UTF-8');
         
@@ -93,10 +94,8 @@ class OPDSLink {
         }
         
         // Добавляем свойства для OPDS 1.2
-        if ($version === '1.2') {
-            foreach ($this->properties as $name => $value) {
-                $attrs['properties'] = ($attrs['properties'] ?? '') . ($attrs['properties'] ? ' ' : '') . $name . ':' . htmlspecialchars($value, ENT_XML1, 'UTF-8');
-            }
+        foreach ($this->properties as $name => $value) {
+            $attrs['properties'] = ($attrs['properties'] ?? '') . ($attrs['properties'] ? ' ' : '') . $name . ':' . htmlspecialchars($value, ENT_XML1, 'UTF-8');
         }
         
         $attrString = '';

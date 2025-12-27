@@ -22,9 +22,8 @@ spl_autoload_register(function ($class) {
         return;
     }
     
-    // Версионные классы
+    // Класс реализации OPDS 1.2
     $versionClasses = [
-        'OPDS1Feed' => $baseDir . '../v1/OPDS1Feed.php',
         'OPDS2Feed' => $baseDir . '../v2/OPDS2Feed.php',
     ];
     

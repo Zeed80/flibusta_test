@@ -53,9 +53,9 @@ class OPDSCache {
      * @return string MD5 хеш ключа кэша
      */
     public function getCacheKey($params) {
-        // Добавляем версию OPDS к ключу для разных форматов
+        // Удаляем version из параметров, если он есть (больше не используется)
         if (isset($params['version'])) {
-            $params['_opds_version'] = $params['version'];
+            unset($params['version']);
         }
         return md5(serialize($params));
     }

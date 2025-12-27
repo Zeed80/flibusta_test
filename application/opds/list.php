@@ -13,7 +13,7 @@ if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
     http_response_code(500);
     header('Content-Type: application/atom+xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:internal</id>
   <title>Внутренняя ошибка сервера</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -58,12 +58,8 @@ if ($cachedContent !== null) {
 }
 
 // Если кэша нет или устарел, генерируем фид
-// Создаем фид с автоматическим определением версии
+// Создаем фид OPDS 1.2
 $feed = OPDSFeedFactory::create();
-$version = $feed->getVersion();
-
-// Добавляем версию в параметры кэша
-$cacheParams['version'] = $version;
 
 // Определяем параметры фильтрации
 $filter = "deleted='0' ";
@@ -172,7 +168,7 @@ try {
 	http_response_code(500);
 	header('Content-Type: application/atom+xml; charset=utf-8');
 	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:sql</id>
   <title>Ошибка базы данных</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -201,19 +197,19 @@ $feed->addLink(new OPDSLink(
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/search?q={searchTerms}',
 	'search',
-	OPDSVersion::getProfile($version, 'acquisition')
+	OPDSVersion::getProfile('acquisition')
 ));
 
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/',
 	'start',
-	OPDSVersion::getProfile($version, 'navigation')
+	OPDSVersion::getProfile('navigation')
 ));
 
 $feed->addLink(new OPDSLink(
 	$webroot . '/opds/list?' . http_build_query(array_merge($params, ['page' => $page])),
 	'self',
-	OPDSVersion::getProfile($version, 'acquisition')
+	OPDSVersion::getProfile('acquisition')
 ));
 
 // Добавляем навигацию
@@ -221,9 +217,8 @@ $baseUrl = $webroot . '/opds/list';
 $navigation = new OPDSNavigation($page, $totalPages, $totalItems, $itemsPerPage, $baseUrl, $params);
 $feed->setNavigation($navigation);
 
-// Добавляем фасетную навигацию (только для OPDS 1.2)
-if ($version === OPDSVersion::VERSION_1_2) {
-	// Фасет по языкам
+// Добавляем фасетную навигацию (OPDS 1.2)
+// Фасет по языкам
 	$langFacet = new OPDSFacet('language', 'Язык');
 	$langs = $dbh->query("SELECT DISTINCT lang, COUNT(*) as cnt FROM libbook WHERE deleted='0' AND lang != '' GROUP BY lang ORDER BY lang LIMIT 10");
 	while ($lang = $langs->fetch(PDO::FETCH_OBJ)) {
@@ -262,7 +257,6 @@ if ($version === OPDSVersion::VERSION_1_2) {
 	if (count($formatFacet->getActiveFacets()) > 0 || $formats->rowCount() > 0) {
 		$feed->addFacet($formatFacet);
 	}
-}
 
 // Получаем книги
 try {
@@ -291,7 +285,7 @@ try {
 	$errorsCount = 0;
 	while ($b = $books->fetch(PDO::FETCH_OBJ)) {
 		try {
-			$entry = opds_book_entry($b, $webroot, $version);
+			$entry = opds_book_entry($b, $webroot);
 			if ($entry) {
 				$feed->addEntry($entry);
 				$entriesCount++;
@@ -318,7 +312,7 @@ try {
 	http_response_code(500);
 	header('Content-Type: application/atom+xml; charset=utf-8');
 	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:sql</id>
   <title>Ошибка базы данных</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
@@ -335,7 +329,7 @@ try {
 	http_response_code(500);
 	header('Content-Type: application/atom+xml; charset=utf-8');
 	echo '<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="https://specs.opds.io/opds-1.2">
   <id>tag:error:unexpected</id>
   <title>Неожиданная ошибка</title>
   <updated>' . htmlspecialchars(date('c'), ENT_XML1, 'UTF-8') . '</updated>
