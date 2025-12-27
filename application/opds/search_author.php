@@ -30,8 +30,9 @@ if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
 // Инициализируем кэш OPDS (используем singleton паттерн)
 $opdsCache = OPDSCache::getInstance();
 
-// Получаем параметры для кэша
-$q = isset($_GET['q']) ? trim($_GET['q']) : '';
+// Получаем параметры для поиска
+// Поддерживаем оба варианта: 'q' и 'searchTerm'
+$q = isset($_GET['q']) ? trim($_GET['q']) : (isset($_GET['searchTerm']) ? trim($_GET['searchTerm']) : '');
 
 // Валидация поискового запроса
 if ($q == '') {

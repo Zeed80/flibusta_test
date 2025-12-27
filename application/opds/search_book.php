@@ -23,27 +23,19 @@ if (!isset($dbh) || !isset($webroot) || !isset($cdt)) {
 $opdsCache = OPDSCache::getInstance();
 
 // Валидируем поисковый запрос
-try {
-    $q = OPDSValidator::validateSearchQuery('q', 1, 255, true);
-} catch (\InvalidArgumentException $e) {
-    OPDSValidator::handleValidationException($e);
+// Поддерживаем оба варианта параметров: 'q' и 'searchTerm'
+$q = isset($_GET['q']) ? trim($_GET['q']) : (isset($_GET['searchTerm']) ? trim($_GET['searchTerm']) : '');
+if (empty($q)) {
+    OPDSValidator::handleValidationException(new \InvalidArgumentException('Пустой поисковый запрос'));
 }
-
-$get = "?q=" . urlencode($q);
-
-// Получаем параметры для кэша
-  <entry>
-    <id>tag:error:empty_query</id>
-    <title>Пустой запрос</title>
-    <summary type="text">Пожалуйста, укажите строку для поиска книг</summary>
-  </entry>
-</feed>';
-    exit;
+// Проверяем длину
+if (mb_strlen($q, 'UTF-8') > 255) {
+    $q = mb_substr($q, 0, 255, 'UTF-8');
 }
 
 // Создаем ключ кэша для поиска книг
 // Добавляем версию кэша для принудительного пересоздания при изменениях
-$cacheKey = 'opds_search_book_v4_' . md5($q);
+$cacheKey = 'opds_search_book_v5_' . md5($q);
 
 // Проверяем кэш
 $cachedContent = $opdsCache->get($cacheKey);
