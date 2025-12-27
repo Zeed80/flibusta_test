@@ -124,21 +124,33 @@ if ($length_letters > 0) {
 		$showAuthors = true; // Флаг, что нужно показывать авторов
 	} else {
 		// Группируем по префиксам (N+1 символов)
-		// Используем LENGTH для проверки, что фамилия достаточно длинная
+		// ВАЖНО: показываем только уникальные префиксы следующего уровня
+		// Используем DISTINCT ON для PostgreSQL, чтобы получить только уникальные префиксы
 		$alphaExpr = "UPPER(SUBSTR(TRIM(LastName), 1, " . ($length_letters + 1) . "))";
 		// Применяем русский collation, если доступен
 		$orderByExpr = $alphaExpr;
 		if (class_exists('OPDSCollation')) {
 			$orderByExpr = OPDSCollation::applyRussianCollation($alphaExpr, $dbh);
 		}
+		// Используем подзапрос для получения уникальных префиксов
+		// и затем считаем количество авторов для каждого префикса
 		$query = "
-			SELECT " . $alphaExpr . " as alpha, COUNT(*) as cnt
-			FROM libavtorname
-			WHERE LastName IS NOT NULL 
-			AND TRIM(LastName) != ''
-			AND LENGTH(TRIM(LastName)) >= " . ($length_letters + 1) . "
-			AND UPPER(SUBSTR(TRIM(LastName), 1, " . $length_letters . ")) = :prefix
-			GROUP BY " . $alphaExpr . "
+			SELECT 
+				prefix as alpha,
+				COUNT(*) as cnt
+			FROM (
+				SELECT DISTINCT " . $alphaExpr . " as prefix
+				FROM libavtorname
+				WHERE LastName IS NOT NULL 
+				AND TRIM(LastName) != ''
+				AND LENGTH(TRIM(LastName)) >= " . ($length_letters + 1) . "
+				AND UPPER(SUBSTR(TRIM(LastName), 1, " . $length_letters . ")) = :prefix
+			) AS unique_prefixes
+			JOIN libavtorname ON UPPER(SUBSTR(TRIM(libavtorname.LastName), 1, " . ($length_letters + 1) . ")) = unique_prefixes.prefix
+			WHERE libavtorname.LastName IS NOT NULL 
+			AND TRIM(libavtorname.LastName) != ''
+			AND UPPER(SUBSTR(TRIM(libavtorname.LastName), 1, " . $length_letters . ")) = :prefix
+			GROUP BY prefix
 			ORDER BY " . $orderByExpr;
 		$ai = $dbh->prepare($query);
 		$ai->bindParam(":prefix", $lettersUpper);
