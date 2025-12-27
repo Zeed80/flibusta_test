@@ -194,9 +194,30 @@ class OPDSBookService extends OPDSService {
      * @return string ORDER BY с примененным COLLATE
      */
     protected function applyRussianCollation(string $orderBy): string {
-        // Возвращаем ORDER BY без изменений
-        // Используется collation базы данных по умолчанию
-        // Если нужна специальная сортировка, можно создать collation в БД
+        // Используем OPDSCollation для безопасного применения collation
+        if (class_exists('OPDSCollation')) {
+            // Определяем поля, которые нужно сортировать с русским collation
+            $patterns = [
+                '/\btitle\b/i' => 'b.title',
+                '/\blastname\b/i' => 'lastname',
+                '/\bfirstname\b/i' => 'firstname',
+                '/\bseqname\b/i' => 'seqname',
+                '/\bgenredesc\b/i' => 'genredesc',
+            ];
+            
+            $result = $orderBy;
+            foreach ($patterns as $pattern => $field) {
+                if (preg_match($pattern, $result)) {
+                    // Заменяем поле на версию с collation, если доступен
+                    $withCollation = OPDSCollation::applyRussianCollation($field, $this->dbh);
+                    $result = preg_replace('/\b' . preg_quote($field, '/') . '\b/i', $withCollation, $result);
+                }
+            }
+            
+            return $result;
+        }
+        
+        // Fallback: возвращаем без изменений
         return $orderBy;
     }
 }

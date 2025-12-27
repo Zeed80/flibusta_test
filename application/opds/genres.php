@@ -81,7 +81,8 @@ $feed->addLink(new OPDSLink(
 	OPDSVersion::getProfile( 'navigation')
 ));
 
-$gs = $dbh->prepare("SELECT DISTINCT(genremeta) genre FROM libgenrelist ORDER BY genre");
+$orderBy = class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollation('genre', $dbh) : 'genre';
+$gs = $dbh->prepare("SELECT DISTINCT(genremeta) genre FROM libgenrelist ORDER BY " . $orderBy);
 $gs->execute();
 
 while ($g = $gs->fetch(PDO::FETCH_OBJ)) {

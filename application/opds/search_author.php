@@ -111,7 +111,7 @@ $authors = $dbh->prepare("SELECT *,
     libavtor.avtorid=libavtorname.avtorid) cnt
     FROM libavtorname
     WHERE lastname ILIKE :q 
-    ORDER BY lastname, firstname
+    ORDER BY " . (class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollationToMultiple(['lastname', 'firstname'], $dbh) : 'lastname, firstname') . "
     LIMIT 100");
 $authors->bindParam(":q", $queryParam);
 $authors->execute();

@@ -88,21 +88,25 @@ $length_letters = mb_strlen($letters, 'UTF-8');
 
 if ($length_letters > 0) {
 	$pattern = $letters . '_';
+	$alphaExpr = "UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . "))";
+	$orderByExpr = class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollation($alphaExpr, $dbh) : $alphaExpr;
 	$query = "
-		SELECT UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) as alpha, COUNT(*) as cnt
+		SELECT " . $alphaExpr . " as alpha, COUNT(*) as cnt
 		FROM libseqname
-		WHERE UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) SIMILAR TO :pattern
-		GROUP BY UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . "))
-		ORDER BY alpha";
+		WHERE " . $alphaExpr . " SIMILAR TO :pattern
+		GROUP BY " . $alphaExpr . "
+		ORDER BY " . $orderByExpr;
 	$ai = $dbh->prepare($query);
 	$ai->bindParam(":pattern", $pattern);
 	$ai->execute();
 } else {
+	$alphaExpr = "UPPER(SUBSTR(SeqName, 1, 1))";
+	$orderByExpr = class_exists('OPDSCollation') ? OPDSCollation::applyRussianCollation($alphaExpr, $dbh) : $alphaExpr;
 	$query = "
-		SELECT UPPER(SUBSTR(SeqName, 1, 1)) as alpha, COUNT(*) as cnt
+		SELECT " . $alphaExpr . " as alpha, COUNT(*) as cnt
 		FROM libseqname
-		GROUP BY UPPER(SUBSTR(SeqName, 1, 1))
-		ORDER BY alpha";
+		GROUP BY " . $alphaExpr . "
+		ORDER BY " . $orderByExpr;
 	$ai = $dbh->query($query);
 }
 
@@ -129,10 +133,15 @@ while ($ach = $ai->fetchObject()) {
 		$feed->addEntry($entry);
 	} else {
 		// list individual serie
+		$seqNameExpr = "UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . "))";
+		$orderByExpr = "UPPER(SeqName)";
+		if (class_exists('OPDSCollation')) {
+			$orderByExpr = OPDSCollation::applyRussianCollation($orderByExpr, $dbh);
+		}
 		$sq = $dbh->prepare("SELECT SeqName, SeqId 
 				from libseqname 
-				where UPPER(SUBSTR(SeqName, 1, " . ($length_letters + 1) . ")) = :pattern
-				ORDER BY UPPER(SeqName)");
+				where " . $seqNameExpr . " = :pattern
+				ORDER BY " . $orderByExpr);
 		$sq->bindParam(":pattern", $alpha);
 		$sq->execute();
 		while($s = $sq->fetchObject()){

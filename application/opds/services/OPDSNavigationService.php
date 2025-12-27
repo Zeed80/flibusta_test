@@ -87,13 +87,26 @@ class OPDSNavigationService extends OPDSService {
     public function getOrderByForSort(string $sortType, bool $ascending = false): string {
         $direction = $ascending ? 'ASC' : 'DESC';
         
+        // Используем OPDSCollation для безопасного применения русского collation
+        $useCollation = class_exists('OPDSCollation') && OPDSCollation::isRussianCollationAvailable($this->dbh);
+        
         switch ($sortType) {
             case 'title':
-                // Сортировка по названию (используется collation базы данных)
+                // Сортировка по названию с русским collation, если доступен
+                if ($useCollation) {
+                    return OPDSCollation::applyRussianCollation("b.title", $this->dbh, $direction);
+                }
                 return "b.title $direction";
                 
             case 'author':
-                // Сортировка по автору (используется collation базы данных)
+                // Сортировка по автору с русским collation, если доступен
+                if ($useCollation) {
+                    return OPDSCollation::applyRussianCollationToMultiple(
+                        ['lastname', 'firstname'], 
+                        $this->dbh, 
+                        $direction
+                    );
+                }
                 return "lastname $direction, firstname $direction";
                 
             case 'year':

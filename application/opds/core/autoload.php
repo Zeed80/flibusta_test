@@ -18,6 +18,7 @@ spl_autoload_register(function ($class) {
         'OPDSGroup' => $baseDir . 'OPDSGroup.php',
         'OPDSErrorHandler' => $baseDir . 'OPDSErrorHandler.php',
         'OPDSValidator' => $baseDir . 'OPDSValidator.php',
+        'OPDSCollation' => $baseDir . 'OPDSCollation.php',
     ];
     
     if (isset($coreClasses[$class])) {
