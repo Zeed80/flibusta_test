@@ -1,8 +1,6 @@
 <?php
 declare(strict_types=1);
 
-require_once(__DIR__ . '/OPDSEntry.php');
-
 /**
  * Класс для группировки записей в OPDS 1.2 фидах (opds:group)
  * Используется для группировки entries по какому-либо признаку (автор, год и т.д.)

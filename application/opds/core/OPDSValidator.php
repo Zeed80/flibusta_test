@@ -1,8 +1,6 @@
 <?php
 declare(strict_types=1);
 
-require_once(__DIR__ . '/OPDSErrorHandler.php');
-
 /**
  * Класс для валидации входных данных OPDS запросов
  * Проверяет параметры GET запросов и возвращает валидные значения

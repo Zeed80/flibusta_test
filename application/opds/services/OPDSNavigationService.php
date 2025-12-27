@@ -1,11 +1,6 @@
 <?php
 declare(strict_types=1);
 
-require_once(__DIR__ . '/OPDSService.php');
-require_once(__DIR__ . '/../core/OPDSNavigation.php');
-require_once(__DIR__ . '/../core/OPDSLink.php');
-require_once(__DIR__ . '/../core/OPDSVersion.php');
-
 /**
  * Сервис для работы с навигацией в OPDS
  * Предоставляет методы для создания навигационных ссылок и пагинации

@@ -1,12 +1,6 @@
 <?php
 declare(strict_types=1);
 
-require_once(__DIR__ . '/../core/OPDSFeed.php');
-require_once(__DIR__ . '/../core/OPDSLink.php');
-require_once(__DIR__ . '/../core/OPDSEntry.php');
-require_once(__DIR__ . '/../core/OPDSNavigation.php');
-require_once(__DIR__ . '/../core/OPDSFacet.php');
-
 /**
  * Реализация OPDS 1.2 фида
  */
